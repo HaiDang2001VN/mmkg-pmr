@@ -107,7 +107,7 @@ Large-scale fine-art knowledge graph with enriched metadata and artist-to-artist
 - **Triples:** 7,877,220 (train) / 208,513 (val) / 208,368 (test)
 - **Modality Asymmetry:** Complex entity-type dependent modality combinations
 
-See [data/README.md](data/README.md) for detailed dataset descriptions.
+See [data/README.md](vlkge/data/README.md) for detailed dataset descriptions.
 
 ## Results
 
@@ -150,7 +150,6 @@ VL-KGE demonstrates substantial improvements over zero-shot baselines, especiall
 ```
 vlkge/
 ├── configs/                 # YAML configuration files
-│   ├── README.md
 │   ├── wn9_img/
 │   │   ├── transe_clip.yaml
 │   │   ├── distmult_clip.yaml
@@ -206,7 +205,6 @@ All experiments can be reproduced using the provided YAML configuration files in
 - Training settings
 - Evaluation protocol
 
-See [configs/README.md](configs/README.md) for more details.
 
 ## Key Contributions
 
