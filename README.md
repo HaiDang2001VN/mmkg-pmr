@@ -10,7 +10,7 @@ Official PyTorch implementation of **"VL-KGE: Vision-Language Models Meet Knowle
 
 VL-KGE is a multimodal knowledge graph embedding framework that integrates pretrained vision-language representations (CLIP, BLIP) with traditional KGE methods (TransE, DistMult, ComplEx, RotatE) to learn unified representations of entities across visual, textual, and structural modalities.
 
-![WN9-IMG Example](assets/wn9_img_example.svg)  
+![WN9-IMG Example](assets/wn9_img_example.png)  
 *Figure 1: Example triples from WN9-IMG. Entities correspond to ImageNet synsets with images (red) and WordNet textual definitions (cyan), connected by semantic relations.*
 
 ### Key Features
@@ -22,7 +22,7 @@ VL-KGE is a multimodal knowledge graph embedding framework that integrates pretr
 - **Flexible Architecture:** Compatible with multiple KGE backbones (TransE, DistMult, ComplEx, RotatE)
 - **Three Datasets:** Includes WN9-IMG and two new fine-art knowledge graphs
 
-![WikiArt-MKG Example](assets/wikiart_mkg_example.svg)
+![WikiArt-MKG Example](assets/wikiart_mkg_example.png)
 *Figure 2: Example subgraphs from WikiArt-MKG-v1 and WikiArt-MKG-v2. Artworks are represented visually, while associated entities (artists, styles, genres, locations) are represented textually.*
 
 ## Installation
