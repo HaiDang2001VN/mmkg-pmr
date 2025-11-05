@@ -228,3 +228,7 @@ If you use this code or datasets in your research, please cite:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+**Questions or Issues?** Please contact the corresponding author or open an issue on our [GitHub repository](https://github.com/thefth/vl-kge/issues).
