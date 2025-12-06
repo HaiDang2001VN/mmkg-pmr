@@ -30,7 +30,7 @@ bidirectional_eval: false
 inductive: true
 modality_asymmetry: true
 exclude_relations_eval: ['isRelatedToArtwork', 'isRelatedToArtist', 'hasCreatedArtwork']
-add_inverse_relations: ['isCreatedByArtist:hasCreatedArtwork']
+add_inverse_relations: {'isCreatedByArtist:hasCreatedArtwork'}
 artist2artist_relations: ['isInfluencedBy', 'isInfluencedOn', 'isPupilOf', 'isTeacherOf']
 downsample_relation: 'isRelatedToArtwork'
 downsample_fraction: 0.001
