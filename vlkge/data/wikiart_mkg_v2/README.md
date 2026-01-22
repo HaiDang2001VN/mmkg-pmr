@@ -129,11 +129,11 @@ Precomputed features are available in the `features/` directory:
 | `wikiart_mkg_v2_tf_blip.pkl` | BLIP textual features | 7,602 × 256 |
 | `wikiart_mkg_v2_vf_vit_b_16.pkl` | ViT-B/16 visual features | 216,564 × 768 |
 | `wikiart_mkg_v2_tf_bert.pkl` | BERT textual features | 7,602 × 768 |
-| `wikiart_mkg_v2_rf_clip.pkl` | CLIP relation features | 21 × 768 |
-| `wikiart_mkg_v2_rf_blip.pkl` | BLIP relation features | 21 × 256 |
-| `wikiart_mkg_v2_rf_bert.pkl` | BERT relation features | 21 × 768 |
+| `wikiart_mkg_v2_rf_clip.pkl` | CLIP relation features | 20 × 768 |
+| `wikiart_mkg_v2_rf_blip.pkl` | BLIP relation features | 20 × 256 |
+| `wikiart_mkg_v2_rf_bert.pkl` | BERT relation features | 20 × 768 |
 
-**Note:** Relation features are provided for 21 relations (excluding `isRelatedToArtwork`, which is visual-visual). Pre-computed relation features are never used in VL-KGE experiments but are provided for potential future work.
+**Note:** Relation features are provided for 20 relations (excluding similarity relations). Pre-computed relation features are never used in VL-KGE experiments but are provided for potential future work.
 
 ---
 
