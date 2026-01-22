@@ -2,7 +2,12 @@
 
 ## Overview
 
-**WikiArt-MKG-v2** is a large-scale fine-art multimodal knowledge graph that substantially extends WikiArt-MKG-v1 with richer metadata, broader coverage, and more complex relational structure. It was introduced in the paper **["VL-KGE: Vision–Language Models Meet Knowledge Graph Embeddings" (WWW '26)](https://doi.org/10.1145/3774904.3792677)**, and is designed to evaluate multimodal knowledge graph embedding methods under realistic conditions including modality asymmetry, inductive learning, and heterogeneous relation types.
+**WikiArt-MKG-v2** is a large-scale fine-art multimodal knowledge graph that substantially extends WikiArt-MKG-v1 with richer metadata, broader coverage, and more complex relational structure. It was introduced in the paper **["VL-KGE: Vision–Language Models Meet Knowledge Graph Embeddings" (WWW '26)](https://doi.org/10.1145/3774904.3792677)**.
+
+In the same work, we also introduce **WikiArt-v2**, a large-scale artwork and artist collection constructed from WikiArt.org, which serves as the underlying data source for WikiArt-MKG-v2.
+
+WikiArt-MKG-v2 is designed to evaluate multimodal knowledge graph embedding methods under realistic conditions including modality asymmetry, inductive learning, and heterogeneous relation types.
+
 
 ---
 
@@ -118,16 +123,17 @@ Precomputed features are available in the `features/` directory:
 
 | File | Description | Dimensions |
 |------|-------------|------------|
-| `wikiart_mkg_v2_vf_clip.pkl` | CLIP visual features | 216,564 × 512 |
-| `wikiart_mkg_v2_tf_clip.pkl` | CLIP textual features | 7,602 × 512 |
-| `wikiart_mkg_v2_vf_blip.pkl` | BLIP visual features | 216,564 × 768 |
-| `wikiart_mkg_v2_tf_blip.pkl` | BLIP textual features | 7,602 × 768 |
+| `wikiart_mkg_v2_vf_clip.pkl` | CLIP visual features | 216,564 × 768 |
+| `wikiart_mkg_v2_tf_clip.pkl` | CLIP textual features | 7,602 × 768 |
+| `wikiart_mkg_v2_vf_blip.pkl` | BLIP visual features | 216,564 × 256 |
+| `wikiart_mkg_v2_tf_blip.pkl` | BLIP textual features | 7,602 × 256 |
 | `wikiart_mkg_v2_vf_vit_b_16.pkl` | ViT-B/16 visual features | 216,564 × 768 |
 | `wikiart_mkg_v2_tf_bert.pkl` | BERT textual features | 7,602 × 768 |
-| `wikiart_mkg_v2_rf_clip.pkl` | CLIP relation features | 22 × 512 |
-| `wikiart_mkg_v2_rf_blip.pkl` | BLIP relation features | 22 × 768 |
-| `wikiart_mkg_v2_rf_bert.pkl` | BERT relation features | 22 × 768 |
+| `wikiart_mkg_v2_rf_clip.pkl` | CLIP relation features | 21 × 768 |
+| `wikiart_mkg_v2_rf_blip.pkl` | BLIP relation features | 21 × 256 |
+| `wikiart_mkg_v2_rf_bert.pkl` | BERT relation features | 21 × 768 |
 
+**Note:** Relation features are provided for 21 relations (excluding `isRelatedToArtwork`, which is visual-visual). These features are not used in VL-KGE experiments but are provided for potential future work.
 ---
 
 ## Usage Example
@@ -151,9 +157,9 @@ train_data, val_data, test_data = loader.split_data()
 
 ---
 
-## Dataset Curation and Construction
+## WikiArt-v2 Dataset Curation and Construction
 
-This dataset was constructed through large-scale web scraping of the WikiArt online collection (https://www.wikiart.org), a comprehensive repository of fine art spanning multiple centuries, artistic movements, and geographic regions. WikiArt-MKG-v2 extends WikiArt-MKG-v1 in both scale and semantic richness, increasing coverage from approximately 76K to over 216K artworks and from 750 to over 4K artists, alongside thousands of additional attribute entities (styles, movements, genres, years, locations, etc.).
+The WikiArt-v2 was constructed through large-scale web scraping of the WikiArt online collection (https://www.wikiart.org), a comprehensive repository of fine art spanning multiple centuries, artistic movements, and geographic regions. The WikiArt-v2 extends WikiArt-v1 in both scale and semantic richness, increasing coverage from approximately 76K to over 216K artworks and from 750 to over 4K artists, alongside thousands of additional attribute entities (styles, movements, genres, years, locations, etc.).
 
 ### Data Collection and Curation
 
@@ -171,7 +177,7 @@ To ensure data quality, we applied several filtering and normalization steps:
 
 Unlike curated benchmarks such as WN9-IMG where all entities possess complete modalities by design, WikiArt-MKG-v2 exhibits natural modality sparsity reflecting real-world data characteristics.
 
-### Knowledge Graph Construction
+### WikiArt-MKG-v2 Knowledge Graph Construction
 
 From the curated WikiArt-v2 collection, we constructed a multimodal knowledge graph with 22 relation types spanning:
 

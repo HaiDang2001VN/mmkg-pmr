@@ -77,14 +77,14 @@ Precomputed features are available in the `features/` directory:
 
 | File | Description | Dimensions |
 |------|-------------|------------|
-| `wikiart_mkg_v1_vf_clip.pkl` | CLIP visual features | 75,921 × 512 |
-| `wikiart_mkg_v1_tf_clip.pkl` | CLIP textual features | 837 × 512 |
-| `wikiart_mkg_v1_vf_blip.pkl` | BLIP visual features | 75,921 × 768 |
-| `wikiart_mkg_v1_tf_blip.pkl` | BLIP textual features | 837 × 768 |
+| `wikiart_mkg_v1_vf_clip.pkl` | CLIP visual features | 75,921 × 768 |
+| `wikiart_mkg_v1_tf_clip.pkl` | CLIP textual features | 837 × 768 |
+| `wikiart_mkg_v1_vf_blip.pkl` | BLIP visual features | 75,921 × 256 |
+| `wikiart_mkg_v1_tf_blip.pkl` | BLIP textual features | 837 × 256 |
 | `wikiart_mkg_v1_vf_vit_b_16.pkl` | ViT-B/16 visual features | 75,921 × 768 |
 | `wikiart_mkg_v1_tf_bert.pkl` | BERT textual features | 837 × 768 |
-| `wikiart_mkg_v1_rf_clip.pkl` | CLIP relation features | 4 × 512 |
-| `wikiart_mkg_v1_rf_blip.pkl` | BLIP relation features | 4 × 768 |
+| `wikiart_mkg_v1_rf_clip.pkl` | CLIP relation features | 4 × 768 |
+| `wikiart_mkg_v1_rf_blip.pkl` | BLIP relation features | 4 × 256 |
 | `wikiart_mkg_v1_rf_bert.pkl` | BERT relation features | 4 × 768 |
 
 ---

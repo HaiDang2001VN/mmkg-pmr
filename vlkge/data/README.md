@@ -75,21 +75,21 @@ Precomputed features are provided in each dataset's `features/` subdirectory:
 
 ### Visual Features
 
-- **`*_vf_clip.pkl`** - CLIP ViT-B/16 visual features (512-dim)
-- **`*_vf_blip.pkl`** - BLIP visual features (768-dim)
+- **`*_vf_clip.pkl`** - CLIP ViT-B/16 visual features (768-dim)
+- **`*_vf_blip.pkl`** - BLIP visual features (256-dim)
 - **`*_vf_vit_b_16.pkl`** - ViT-B/16 visual features (768-dim)
 
 ### Textual Features
 
-- **`*_tf_clip.pkl`** - CLIP text encoder features (512-dim)
-- **`*_tf_blip.pkl`** - BLIP text encoder features (768-dim)
+- **`*_tf_clip.pkl`** - CLIP text encoder features (768-dim)
+- **`*_tf_blip.pkl`** - BLIP text encoder features (256-dim)
 - **`*_tf_bert.pkl`** - BERT text encoder features (768-dim)
 
 ### Relation Features
 
-- **`*_rf_clip.pkl`** - CLIP relation features
-- **`*_rf_blip.pkl`** - BLIP relation features
-- **`*_rf_bert.pkl`** - BERT relation features
+- **`*_rf_clip.pkl`** - CLIP relation features (768-dim)
+- **`*_rf_blip.pkl`** - BLIP relation features (256-dim)
+- **`*_rf_bert.pkl`** - BERT relation features (768-dim)
 
 All features are stored as PyTorch tensors in pickle format.
 
@@ -101,8 +101,8 @@ Visual and textual features were extracted using the following models:
 
 | Model | Visual Encoder | Textual Encoder | Dimensions |
 |-------|----------------|-----------------|------------|
-| CLIP | ViT-B/16 | Transformer | 512 |
-| BLIP | ViT-B/16 | BERT-base | 768 |
+| CLIP | ViT-B/16 | Transformer | 768 |
+| BLIP | ViT-B/16 | BERT-base | 256 |
 | ViT-B/16 | ViT-B/16 | - | 768 |
 | BERT | - | BERT-base | 768 |
 
