@@ -1,6 +1,6 @@
 # VL-KGE Datasets
 
-This directory contains three multimodal knowledge graph datasets used in the VL-KGE paper.
+This directory contains three multimodal knowledge graph datasets used in the [VL-KGE paper](https://doi.org/10.1145/3774904.3792677).
 
 ## Overview
 
@@ -19,12 +19,10 @@ This directory contains three multimodal knowledge graph datasets used in the VL
 WordNet-based benchmark where all entities possess both visual and textual modalities.
 
 **Key Characteristics:**
-- Entities are ImageNet synsets with images and WordNet definitions
-- Complete modality coverage (all entities have visual + textual features)
-- Evaluates multimodal integration under uniform modality distribution
-- Standard benchmark for multimodal KGE methods
-
-**Use Case:** Evaluating how well models integrate visual and textual information when both modalities are always available.
+- Entities are ImageNet synsets with images and WordNet definitions.
+- Complete modality coverage (all entities have visual + textual features).
+- Evaluates multimodal integration under uniform modality distribution.
+- Standard benchmark for multimodal KGE methods.
 
 ---
 
@@ -33,12 +31,10 @@ WordNet-based benchmark where all entities possess both visual and textual modal
 Fine-art knowledge graph focused on artwork attribute prediction.
 
 **Key Characteristics:**
-- Artworks (visual entities) connected to attributes (textual entities)
-- 4 relation types: artist, style, year, tags
-- Modality asymmetry: artworks have visual features, attributes have textual features
-- Inductive setting: test artworks are unseen during training
-
-**Use Case:** Evaluating modality asymmetry handling in a controlled setting with clear entity type separation.
+- Artworks (visual entities) connected to attributes (textual entities).
+- 4 relation types: artist, style, year, tags.
+- Modality asymmetry: artworks have visual features, attributes have textual features.
+- Inductive setting: test artworks are unseen during training.
 
 ---
 
@@ -47,13 +43,11 @@ Fine-art knowledge graph focused on artwork attribute prediction.
 Large-scale fine-art knowledge graph with rich relational structure.
 
 **Key Characteristics:**
-- 3x more entities and 22 relation types
-- Includes artist-to-artist relations (influences, pupils, teachers)
-- Complex modality asymmetry across multiple entity types
-- Multiple inductive evaluation settings
-- Relation downsampling and filtering for specific evaluation protocols
-
-**Use Case:** Evaluating real-world multimodal KGE scenarios with heterogeneous entities, complex relations, and modality sparsity.
+- 3x more entities and 22 relation types.
+- Includes artist-to-artist relations (e.g., influences, pupils, teachers).
+- Complex modality asymmetry across multiple entity types.
+- Multiple inductive evaluation settings.
+- Relation downsampling and filtering for specific evaluation protocols.
 
 ---
 
@@ -134,7 +128,7 @@ loader_wa1 = KnowledgeGraphDataLoader(
     modality_asymmetry=True
 )
 
-# Load WikiArt-MKG-v2 (complex modality asymmetry)
+# Load WikiArt-MKG-v2 (modality asymmetry)
 loader_wa2 = KnowledgeGraphDataLoader(
     data_path='data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv',
     dataset_name='wikiart_mkg_v2',
@@ -150,35 +144,19 @@ train_data, val_data, test_data = loader_wn9.split_data()
 
 ---
 
-## Download
-
-Dataset files and precomputed features are available at:
-- **GitHub Repository:** [https://github.com/thefth/vlkge](https://github.com/thefth/vlkge)
-
-Total download size: ~4 GB (including all features)
-
----
-
-## Comparison with Other Datasets
-
-| Dataset | Source | Entities | Relations | Modality Coverage | Inductive |
-|---------|--------|----------|-----------|-------------------|-----------|
-| WN9-IMG | WordNet + ImageNet | 6.6K | 9 | Complete | No |
-| FB-IMG | Freebase + ImageNet | 14.9K | 1,345 | Complete | No |
-| YAGO15K | YAGO | 15K | 34 | Partial | No |
-| WikiArt-MKG-v1 | WikiArt | 76.8K | 4 | Asymmetric | Yes |
-| WikiArt-MKG-v2 | WikiArt | 224K | 22 | Asymmetric | Yes |
-
-WikiArt-MKG datasets are distinguished by their explicit modality asymmetry and inductive evaluation settings.
-
----
-
 ## Citation
+
+If you use this code or datasets in your research, please cite:
 ```bibtex
-@inproceedings{efthymiou2025vlkge,
-  title={VL-KGE: Vision-Language Models Meet Knowledge Graph Embeddings},
-  author={Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Wijnberg, Nachoem and Worring, Marcel},
-  year={2025},
+@inproceedings{efthymiou2026vlkge,
+  title     = {{VL-KGE}: Vision--Language Models Meet Knowledge Graph Embeddings},
+  author    = {Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Wijnberg, Nachoem and Worring, Marcel},
+  booktitle = {Proceedings of the ACM Web Conference 2026 (WWW '26)},
+  year      = {2026},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3774904.3792677},
+  doi       = {10.1145/3774904.3792677}
 }
 ```
 
@@ -186,7 +164,7 @@ WikiArt-MKG datasets are distinguished by their explicit modality asymmetry and 
 
 ## License
 
-- **WN9-IMG:** Derived from WordNet and ImageNet (see respective licenses)
+- **WN9-IMG:** Derived from WordNet and ImageNet (see respective licenses).
 - **WikiArt-MKG-v1/v2:** Released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Images subject to [WikiArt Terms of Use](https://www.wikiart.org/en/terms-of-use).
 
 ---

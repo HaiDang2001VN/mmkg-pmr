@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Official PyTorch implementation of **"VL-KGE: Vision-Language Models Meet Knowledge Graph Embeddings"** by Athanasios Efthymiou, Stevan Rudinac, Monika Kackovic, Nachoem Wijnberg, and Marcel Worring (University of Amsterdam).
+Official PyTorch implementation of **["VL-KGE: Vision–Language Models Meet Knowledge Graph Embeddings" (WWW '26)](https://doi.org/10.1145/3774904.3792677)**.
 
 ## Overview
 
@@ -15,12 +15,12 @@ VL-KGE is a multimodal knowledge graph embedding framework that integrates pretr
 
 ### Key Features
 
-- **Multimodal Integration:** Combines visual features, textual descriptions, and graph structure
-- **Cross-Modal Alignment:** Leverages pretrained vision-language models (CLIP, BLIP) for aligned representations
-- **Modality Asymmetry:** Explicitly handles entities with different modality combinations
-- **Inductive Learning:** Generates embeddings for unseen entities without retraining
-- **Flexible Architecture:** Compatible with multiple KGE backbones (TransE, DistMult, ComplEx, RotatE)
-- **Three Datasets:** Includes WN9-IMG and two new fine-art knowledge graphs
+- **Multimodal Integration:** Combines visual features, textual descriptions, and graph structure.
+- **Cross-Modal Alignment:** Leverages pretrained vision-language models (CLIP, BLIP) for aligned representations.
+- **Modality Asymmetry:** Explicitly handles entities with different modality combinations.
+- **Inductive Learning:** Generates embeddings for unseen entities without retraining.
+- **Flexible Architecture:** Compatible with multiple KGE backbones (TransE, DistMult, ComplEx, RotatE).
+- **Three Datasets:** Includes WN9-IMG and two new fine-art knowledge graphs.
 
 ![WikiArt-MKG Example](assets/wikiart_mkg_example.png)
 *Figure 2: Example subgraphs from WikiArt-MKG-v1 and WikiArt-MKG-v2. Artworks are represented visually, while associated entities (artists, styles, genres, locations) are represented textually.*
@@ -116,35 +116,35 @@ See [data/README.md](vlkge/data/README.md) for detailed dataset descriptions.
 | Model | MRR | Hits@1 | Hits@3 | Hits@10 |
 |-------|-----|--------|--------|---------|
 | TransE (Structural) | 0.904 | 0.894 | 0.909 | 0.922 |
-| **VL-TransE (CLIP)** | **0.913** | **0.890** | **0.928** | **0.950** |
+| VL-TransE (CLIP) | 0.913 | 0.890 | 0.928 | 0.950 |
 | DistMult (Structural) | 0.904 | 0.902 | 0.904 | 0.907 |
-| **VL-DistMult (CLIP)** | **0.935** | **0.925** | **0.940** | **0.957** |
+| VL-DistMult (CLIP) | 0.935 | 0.925 | 0.940 | 0.957 |
 | ComplEx (Structural) | 0.900 | 0.899 | 0.901 | 0.902 |
-| **VL-ComplEx (CLIP)** | **0.927** | **0.920** | **0.929** | **0.941** |
+| VL-ComplEx (CLIP) | 0.927 | 0.920 | 0.929 | 0.941 |
 | RotatE (Structural) | 0.910 | 0.907 | 0.911 | 0.917 |
-| **VL-RotatE (CLIP)** | **0.914** | **0.904** | **0.918** | **0.934** |
+| VL-RotatE (CLIP) | 0.914 | 0.904 | 0.918 | 0.934 |
 
 ### WikiArt-MKG-v1
 
 | Model | MRR | Hits@1 | Hits@3 | Hits@10 |
 |-------|-----|--------|--------|---------|
 | Zero-shot CLIP | 0.510 | 0.357 | 0.609 | 0.798 |
-| **VL-TransE (CLIP)** | 0.683 | 0.535 | 0.799 | 0.938 |
-| **VL-DistMult (CLIP)** | 0.781 | 0.659 | 0.888 | 0.974 |
-| **VL-ComplEx (CLIP)** | **0.785** | **0.665** | **0.889** | **0.975** |
-| **VL-RotatE (CLIP)** | 0.724 | 0.590 | 0.833 | 0.950 |
+| VL-TransE (CLIP) | 0.683 | 0.535 | 0.799 | 0.938 |
+| VL-DistMult (CLIP) | 0.781 | 0.659 | 0.888 | 0.974 |
+| VL-ComplEx (CLIP) | 0.785 | 0.665 | 0.889 | 0.975 |
+| VL-RotatE (CLIP) | 0.724 | 0.590 | 0.833 | 0.950 |
 
 ### WikiArt-MKG-v2
 
 | Model | MRR | Hits@1 | Hits@3 | Hits@10 |
 |-------|-----|--------|--------|---------|
 | Zero-shot CLIP | 0.237 | 0.139 | 0.263 | 0.442 |
-| **VL-TransE (CLIP)** | 0.526 | 0.399 | 0.597 | 0.772 |
-| **VL-DistMult (CLIP)** | 0.577 | 0.462 | 0.643 | 0.796 |
-| **VL-ComplEx (CLIP)** | **0.578** | **0.465** | **0.642** | 0.795 |
-| **VL-RotatE (CLIP)** | 0.439 | 0.326 | 0.489 | 0.667 |
+| VL-TransE (CLIP) | 0.526 | 0.399 | 0.597 | 0.772 |
+| VL-DistMult (CLIP) | 0.577 | 0.462 | 0.643 | 0.796 |
+| VL-ComplEx (CLIP) | 0.578 | 0.465 | 0.642 | 0.795 |
+| VL-RotatE (CLIP) | 0.439 | 0.326 | 0.489 | 0.667 |
 
-VL-KGE demonstrates substantial improvements over zero-shot baselines, especially on modality-asymmetric datasets where it achieves more than 2x improvement in MRR.
+See the paper for full experimental results.
 
 ## Project Structure
 ```
@@ -206,22 +206,19 @@ All experiments can be reproduced using the provided YAML configuration files in
 - Evaluation protocol
 
 
-## Key Contributions
-
-1. **VL-KGE Framework:** Novel integration of pretrained vision-language models with symbolic relational modeling
-2. **Modality Asymmetry Handling:** Explicit support for heterogeneous entities with different modality combinations
-3. **WikiArt-MKG-v2 Dataset:** Large-scale fine-art knowledge graph with 224K entities and 22 relation types
-4. **Inductive Learning:** Support for zero-shot inference on unseen entities
-5. **Comprehensive Evaluation:** Extensive experiments demonstrating substantial improvements over baselines
-
 ## Citation
 
 If you use this code or datasets in your research, please cite:
 ```bibtex
-@inproceedings{efthymiou2025vlkge,
-  title={VL-KGE: Vision-Language Models Meet Knowledge Graph Embeddings},
-  author={Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Wijnberg, Nachoem and Worring, Marcel},
-  year={2025},
+@inproceedings{efthymiou2026vlkge,
+  title     = {{VL-KGE}: Vision--Language Models Meet Knowledge Graph Embeddings},
+  author    = {Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Wijnberg, Nachoem and Worring, Marcel},
+  booktitle = {Proceedings of the ACM Web Conference 2026 (WWW '26)},
+  year      = {2026},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3774904.3792677},
+  doi       = {10.1145/3774904.3792677}
 }
 ```
 

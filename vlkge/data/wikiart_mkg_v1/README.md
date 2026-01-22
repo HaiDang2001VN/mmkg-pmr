@@ -2,9 +2,7 @@
 
 ## Overview
 
-**WikiArt-MKG-v1** is a fine-art multimodal knowledge graph that models artworks and their categorical attributes (artists, styles, creation years, and tags). It was introduced in the paper *"VL-KGE: Vision-Language Models Meet Knowledge Graph Embeddings"* and is designed to evaluate multimodal knowledge graph embedding methods under modality asymmetry, where different entity types naturally possess different modalities.
-
-This dataset transforms traditional artwork classification tasks into structured link prediction problems, enabling the evaluation of how well models can integrate visual and textual information across heterogeneous entity types.
+**WikiArt-MKG-v1** is a fine-art multimodal knowledge graph that models artworks and their categorical attributes (artists, styles, creation years, and tags). It was introduced in the paper **["VL-KGE: Vision–Language Models Meet Knowledge Graph Embeddings" (WWW '26)](https://doi.org/10.1145/3774904.3792677)**, and is designed to evaluate multimodal knowledge graph embedding methods under modality asymmetry, where different entity types naturally possess different modalities.
 
 ---
 
@@ -40,7 +38,7 @@ This dataset transforms traditional artwork classification tasks into structured
 | `head` | Artwork identifier (e.g., `artwork_12345`). |
 | `relation` | Relation type connecting artwork to attribute. |
 | `tail` | Attribute identifier (artist, style, year, or tag). |
-| `split` | Dataset split (`train`, `val`, or `test`). |
+| `mode` | Dataset split (`train`, `val`, or `test`). |
 
 ---
 
@@ -48,10 +46,10 @@ This dataset transforms traditional artwork classification tasks into structured
 
 The dataset contains 4 relation types:
 
-1. **`isCreatedByArtist`** - Links artwork to its creator
-2. **`hasStyle`** - Links artwork to its artistic style/movement
-3. **`isCreatedInYear`** - Links artwork to its creation year
-4. **`isAssociatedWithTag`** - Links artwork to descriptive tags
+1. **`isCreatedByArtist`** - Links artwork to its creator.
+2. **`hasStyle`** - Links artwork to its artistic style/movement.
+3. **`isCreatedInYear`** - Links artwork to its creation year.
+4. **`isAssociatedWithTag`** - Links artwork to descriptive tags.
 
 ---
 
@@ -59,19 +57,17 @@ The dataset contains 4 relation types:
 
 Unlike WN9-IMG where all entities have both visual and textual features, WikiArt-MKG-v1 exhibits **modality asymmetry**:
 
-- **Artworks (heads):** Represented with visual features (images)
-- **Attributes (tails):** Represented with textual features (names/descriptions)
-
-This heterogeneous modality distribution reflects real-world knowledge graphs where different entity types naturally possess different modalities.
+- **Artworks (heads):** Represented with visual features (images).
+- **Attributes (tails):** Represented with textual features (names/descriptions).
 
 ---
 
 ## Evaluation Protocol
 
-- **Task:** Tail prediction only (predict artwork attributes)
-- **Metrics:** MRR, Hits@1, Hits@3, Hits@10
-- **Filtering:** Filtered ranking with per-relation candidate pools
-- **Inductive Setting:** Test artworks are unseen during training
+- **Task:** Tail prediction only (predict artwork attributes).
+- **Metrics:** MRR, Hits@1, Hits@3, Hits@10.
+- **Filtering:** Filtered ranking with per-relation candidate pools.
+- **Inductive Setting:** Test artworks are unseen during training.
 
 ---
 
@@ -111,31 +107,45 @@ train_data, val_data, test_data = loader.split_data()
 
 ---
 
-## Training Configuration
-
-See `configs/wikiart_mkg_v1/` for complete training configurations.
-
-Typical training settings:
-- **Epochs:** 50
-- **Batch size:** 512
-- **Learning rate:** 0.1
-- **Negative samples:** 100
-- **Runtime:** ~2.5 hours per model (A100 GPU)
-
----
-
 ## Data Origin
 
-The WikiArt-MKG-v1 dataset is constructed from data sourced from [WikiArt.org](https://www.wikiart.org/), a comprehensive online encyclopedia of visual art.
+The WikiArt-MKG-v1 is constructed from the WikiArt-v1 artwork collection originally introduced in:
+
+> **"Graph Neural Networks for Knowledge Enhanced Visual Representation of Paintings" (ArtSAGENet)**  
+> *Athanasios Efthymiou, Stevan Rudinac, Monika Kackovic, Marcel Worring, and Nachoem Wijnberg.*  
+> *In Proceedings of the 29th ACM International Conference on Multimedia (MM '21), 2021.*
+
+The WikiArt-v1 collection provides artwork images and metadata (artists, stylistic movements, years, tags). In the VL-KGE work, this data was transformed into an explicit multimodal knowledge graph with typed relations, inductive splits, and precomputed visual–textual features, yielding WikiArt-MKG-v1.
 
 ---
 
 ## Citation
+
+If you use this dataset in your research, please cite:
 ```bibtex
-@inproceedings{efthymiou2025vlkge,
-  title={VL-KGE: Vision-Language Models Meet Knowledge Graph Embeddings},
-  author={Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Wijnberg, Nachoem and Worring, Marcel},
-  year={2025},
+@inproceedings{efthymiou2026vlkge,
+  title     = {{VL-KGE}: Vision--Language Models Meet Knowledge Graph Embeddings},
+  author    = {Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Wijnberg, Nachoem and Worring, Marcel},
+  booktitle = {Proceedings of the ACM Web Conference 2026 (WWW '26)},
+  year      = {2026},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3774904.3792677},
+  doi       = {10.1145/3774904.3792677}
+}
+```
+
+If you use the underlying WikiArt-v1 artwork collection, please also cite:
+```bibtex
+@inproceedings{10.1145/3474085.3475586,
+author = {Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Worring, Marcel and Wijnberg, Nachoem},
+title = {Graph Neural Networks for Knowledge Enhanced Visual Representation of Paintings},
+year = {2021},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3474085.3475586},
+doi = {10.1145/3474085.3475586},
+pages = {3710–3719},
 }
 ```
 
