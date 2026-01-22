@@ -55,7 +55,7 @@ Large-scale fine-art knowledge graph with rich relational structure.
 
 All datasets use the same CSV format for triples:
 ```csv
-head,relation,tail,split
+head,relation,tail,mode
 entity_1,relation_name,entity_2,train
 entity_3,relation_name,entity_4,val
 entity_5,relation_name,entity_6,test
@@ -65,7 +65,7 @@ entity_5,relation_name,entity_6,test
 - `head`: Head entity identifier
 - `relation`: Relation type
 - `tail`: Tail entity identifier
-- `split`: Dataset split (`train`, `val`, or `test`)
+- `mode`: Dataset split (`train`, `val`, or `test`)
 
 ---
 
