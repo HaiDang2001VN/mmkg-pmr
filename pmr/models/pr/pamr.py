@@ -480,8 +480,11 @@ def pamr_collate(batch):
             node_types_list)):
         N = pn.size(0)
         pad_nodes[i, :N] = pn
-        pad_edges[i, :N - 1] = pe
-        pad_directions[i, :N - 1] = pd
+        # N can be 0 for explicit no-path probes; a bare :N-1 slice would
+        # then become :-1 (all but the last column) instead of empty.
+        edge_len = max(N - 1, 0)
+        pad_edges[i, :edge_len] = pe
+        pad_directions[i, :edge_len] = pd
         pad_types[i, :N] = nt
 
     # Interleaved token mask (2*N+1 tokens; True = padding)
@@ -501,8 +504,8 @@ def pamr_collate(batch):
         torch.tensor(query_ids, dtype=torch.long),
         torch.tensor(candidate_tail_ids, dtype=torch.long),
         torch.tensor(probe_head_ids, dtype=torch.long),
-        torch.tensor(has_path_list, dtype=torch.bool),
         torch.tensor(hops_list, dtype=torch.long),
+        torch.tensor(has_path_list, dtype=torch.bool),
         token_mask,
     )
 
