@@ -109,11 +109,14 @@ def _run_one_thread(args_tuple):
     """Run the C++ binary for one thread_id. Returns (thread_id, ok)."""
     (binary, graph_csv, queries_csv, output_prefix,
      max_hops, max_fanout, decay_factor,
-     thread_id, num_threads, log_dir) = args_tuple
+     thread_id, num_threads, log_dir,
+     mask_own_edges, allow_target_traversal, target_ids_csv) = args_tuple
 
     cmd = [binary, graph_csv, queries_csv, output_prefix,
            str(max_hops), str(max_fanout), str(decay_factor),
-           str(thread_id), str(num_threads), log_dir]
+           str(thread_id), str(num_threads), log_dir,
+           str(int(mask_own_edges)), str(int(allow_target_traversal)),
+           target_ids_csv]
     result = subprocess.run(cmd, capture_output=True, text=True)
     ok = (result.returncode == 0)
     if not ok:
@@ -206,6 +209,15 @@ def main():
                 "path_graph section to disclose transductive diagnostics"
             )
 
+    # Per-probe query-edge masking. Own relations (the query relation and its
+    # registry inverse, between the probe's head and tail) are masked in
+    # every split, matching the scope behaviour val/test already get. The
+    # target-traversal rule is one uniform flag for all splits: when false,
+    # BFS may not traverse any target-relation edge anywhere.
+    mask_query_edges = bool(path_graph_cfg.get("mask_query_edges", True))
+    allow_target_traversal = bool(
+        path_graph_cfg.get("allow_target_relation_traversal", True))
+
     # ── Output: datetime folder under workspace checkpoints ─────────────
     base_output = pr_cfg["output_dir"]
     if not Path(base_output).is_absolute():
@@ -256,6 +268,26 @@ def main():
     relation_registry = mapping_dl.get_relation_registry()
     print(f"  {len(entity_to_id):,} entities,  {len(relation_to_id):,} relations"
           " (shared with prepare.py)", flush=True)
+
+    # Target-relation IDs for the uniform traversal rule (from the prepare
+    # config's relation filter, falling back to artist2artist relations).
+    target_relation_names = (
+        (prepare_cfg.get("relation_filter") or {}).get("relations")
+        or prepare_cfg.get("artist2artist_relations")
+        or [])
+    unknown_targets = [name for name in target_relation_names
+                       if name not in relation_to_id]
+    if unknown_targets:
+        raise ValueError(
+            "path_graph target relations missing from the shared mapping: "
+            f"{unknown_targets}"
+        )
+    target_relation_ids = sorted(
+        relation_to_id[name] for name in target_relation_names)
+    target_ids_csv = ",".join(str(rid) for rid in target_relation_ids)
+    print(f"  Path policy: mask_query_edges={mask_query_edges}  "
+          f"allow_target_traversal={allow_target_traversal}  "
+          f"target_relations={len(target_relation_ids)}", flush=True)
 
     graph_relations = set(graph_df["relation"].unique())
     missing_relations = sorted(graph_relations - set(relation_to_id))
@@ -396,6 +428,9 @@ def main():
         graph_meta = {
             "split": split_name,
             "path_graph_scope": list(path_graph_scopes[split_name]),
+            "mask_query_edges": mask_query_edges,
+            "allow_target_relation_traversal": allow_target_traversal,
+            "target_relation_ids": target_relation_ids,
             "relation_registry_hash": relation_registry.registry_hash,
             "num_entities": len(entity_to_id),
             "num_relations": relation_registry.num_relations,
@@ -408,21 +443,28 @@ def main():
         # Every query CSV row is one (head, candidate tail) probe. The BFS
         # returns paths per probe; carrying row_index back through the merge
         # makes candidate_tail_id and query_relation_id explicit instead of
-        # re-inferring them from path endpoints.
+        # re-inferring them from path endpoints. The per-probe query relation
+        # and its registry inverse drive the own-edge mask in the worker.
         queries_csv_path = os.path.join(run_dir, f"{split_name}_queries.csv")
         print(f"  Writing queries CSV ...", flush=True)
         with open(queries_csv_path, "w", newline="") as f:
             w = csv_module.writer(f)
-            w.writerow(["row_index", "query_id", "head_id", "tail_id"])
+            w.writerow([
+                "row_index", "query_id", "head_id", "tail_id",
+                "query_relation_id", "inverse_query_relation_id",
+            ])
             for row_position, row in enumerate(
                     tqdm(qdf.itertuples(index=False), total=len(qdf),
                          desc=f"  Writing queries [{split_name}]",
                          unit="row", leave=False)):
+                qrel_id = int(row.relation_id)
                 w.writerow([
                     row_position,
                     int(row.query_id),
                     int(row.head_id),
                     int(row.tail_id),
+                    qrel_id,
+                    relation_registry.inverse_id(qrel_id),
                 ])
         n_unique = qdf["query_id"].nunique()
         print(f"    → {queries_csv_path}  ({len(qdf):,} rows, {n_unique:,} unique queries)", flush=True)
@@ -434,7 +476,8 @@ def main():
 
         tasks = [(binary, graph_csv_path, queries_csv_path, output_prefix,
                   max_hops, max_fanout, decay_factor,
-                  tid, num_threads, run_dir)
+                  tid, num_threads, run_dir,
+                  mask_query_edges, allow_target_traversal, target_ids_csv)
                  for tid in range(num_threads)]
         ok_count = 0
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
@@ -570,6 +613,9 @@ def main():
         paths_meta = {
             "split": split_name,
             "path_graph_scope": list(path_graph_scopes[split_name]),
+            "mask_query_edges": mask_query_edges,
+            "allow_target_relation_traversal": allow_target_traversal,
+            "target_relation_ids": target_relation_ids,
             "relation_registry": relation_registry.to_dict(),
             "max_hops": max_hops,
             "num_query_rows": len(qdf),

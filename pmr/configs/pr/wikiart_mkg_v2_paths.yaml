@@ -19,7 +19,24 @@ max_hops: 5           # Maximum path length (in hops)
 max_fanout: 100       # Max neighbours explored per node per BFS level
 decay_factor: 0.5     # Fanout multiplier per depth (1.0 = no decay)
 
+# ── Path graph scope and masking ──────────────────────────────────────────
+# Defaults (leakage-safe): val paths use train facts only, test paths use
+# train+val facts. A split may never include its own facts without an
+# explicit disclosure here. mask_query_edges additionally masks each probe's
+# own direct edge (query relation + registry inverse between head and tail)
+# in EVERY split, so train evidence matches eval evidence. The
+# target-traversal rule is uniform: when false, BFS denies all target-
+# relation edges in every split (default true = allowed, non-own target
+# edges only serve as prediction basis and are not leakage).
+path_graph:
+  mask_query_edges: true
+  allow_target_relation_traversal: true
+
 # ── Parallelism ───────────────────────────────────────────────────────────
+# Each worker process independently parses graph_csv and builds its own
+# adjacency (~15M directed entries for the full train graph ≈ several GB
+# resident per process). Budget RAM ≈ num_threads × per-process graph size;
+# lower num_threads if the machine cannot hold all copies.
 num_threads: 8        # Number of OS processes spawned
 
 # ── Compilation ───────────────────────────────────────────────────────────

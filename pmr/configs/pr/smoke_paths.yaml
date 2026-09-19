@@ -7,7 +7,13 @@ prepare_config: configs/eval/smoke_neg_sampling.yaml
 
 max_hops: 3
 max_fanout: 10
-decay_factor: 0.2
+decay_factor: 0.5
+
+# Smoke inherits the production masking policy: own edges masked per probe
+# in every split; target-relation traversal allowed uniformly.
+path_graph:
+  mask_query_edges: true
+  allow_target_relation_traversal: true
 
 num_threads: 8
 
