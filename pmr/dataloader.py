@@ -124,7 +124,12 @@ class KnowledgeGraphDataLoader:
         self.entities = sorted(str(entity) for entity in raw_entities)
         self.entity_to_id = {entity: i for i, entity in enumerate(self.entities)}
 
-        self.data = self.raw_data.copy()
+        # Consume the raw frame instead of copying it: exclusion filters and
+        # inverse materialization below own this data from here on, and
+        # keeping a pristine 8M-row copy alongside the materialized frame
+        # costs gigabytes of resident memory.
+        self.data = self.raw_data
+        self.raw_data = None
         self.data['relation_id'] = self.data['relation'].map(
             self.relation_to_id)
         self.data['is_inverse'] = False
@@ -149,8 +154,8 @@ class KnowledgeGraphDataLoader:
         print(f"  Entities: {len(self.entities):,}")
         print(f"  Relations: {len(self.relations):,}")
         
-        # Pre-map IDs for faster access
-        self.data = self.data.copy()
+        # Pre-map IDs for faster access. The frame is solely owned here (the
+        # raw copy was released above), so no defensive copy is needed.
         self.data['rid'] = self.data['relation_id'].astype(int)
         self.data['hid'] = self.data['head'].map(self.entity_to_id)
         self.data['tid'] = self.data['tail'].map(self.entity_to_id)
@@ -343,7 +348,7 @@ class KnowledgeGraphDataLoader:
                 int(x) for x in arr.tolist())
         return DirectionalFilterMap(tail_filter, head_filter)
 
-    def compute_filter_maps_by_scope(self):
+    def compute_filter_maps_by_scope(self, relation_ids=None):
         """
         Split-aware filtered protocol maps.
 
@@ -353,6 +358,14 @@ class KnowledgeGraphDataLoader:
           test  filters truths known in train + val + test.
         Inverse facts are materialized inside their source split, so every
         truth universe stays split-consistent including reciprocal rows.
+
+        relation_ids: optional iterable of relation IDs. When given, only
+        those relations enter the truth maps. Consumers look up (h, r) only
+        for the relations their queries actually use (e.g. the train_eval
+        target relations), so restricting the subset shrinks the maps by
+        orders of magnitude without changing any lookup for prepared
+        queries. Unlisted relations return the default empty set, exactly
+        like a relation with no known tails.
         """
         scopes = {
             'train': ['train'],
@@ -360,10 +373,16 @@ class KnowledgeGraphDataLoader:
             'test': ['train', 'val', 'test'],
         }
         base = self.data[['hid', 'rid', 'tid', 'mode']]
+        if relation_ids is not None:
+            allowed = {int(rid) for rid in relation_ids}
+            base = base[base['rid'].isin(allowed)]
         out = {}
         for split_name, allowed_modes in scopes.items():
             scope_frame = base[base['mode'].isin(allowed_modes)]
             out[split_name] = self._filter_maps_from_frame(scope_frame)
+            # Each scope frame is a transient copy of the base frame; free
+            # it before the next scope so only the (small) maps accumulate.
+            del scope_frame
         return out
         
     def compute_relation_probs(self):

@@ -84,7 +84,7 @@ Closed by this wave (moved to Section 1): the cache manifest gap (v4 caches now 
 - **Artifact regeneration (Phase 6)** — nothing has been re-run: old query CSVs, all-split path CSVs, `*.v2.samples.pkl` caches, preprocessed `graph.csv`, and both old VL-KGE (22 relations) and PAMR checkpoints remain on disk and are invalid under the new contract. Mandatory on compute:
   1. run `pmr/scripts/check_registry.py --config configs/wikiart_mkg_v2/complex_clip.yaml --expect-raw 22 --expect-total 40`;
   2. compile `preprocess.cpp` (7 `;`-fields with `row_index`, masking arguments, shared-forward BFS);
-  3. `prepare.py` → new query CSVs (target relations only, exact-K negatives);
+  3. `prepare.py` → new query CSVs (target relations only, exact-K negatives). Memory note: scope truth maps are built with `relation_ids` restricted to the target relations under `train_eval` (full-graph maps over 16.6M materialized triples OOM-killed a 12.7 GB Colab runtime at ~7.4 min, rc=-9 with a buffered-empty log), and the DataLoader now releases its raw frame after construction;
   4. `preprocess.py` → split-scoped `graph_{train,val,test}.csv`, per-probe masked train paths, enriched `*_paths.csv` + `*_paths_meta.json`;
   5. retrain VL-KGE scopes (`train`, `train_val`, optional `train_val_test` oracle) with the 40-ID registry;
   6. retrain PAMR per selected scope with `*_v4.samples.pkl` caches (group batching on, `min_eval_coverage` 0.95, `patience` 5, per-relation no-path residual).

@@ -243,11 +243,6 @@ def main():
     print(f"  Splits:  Train={split_sizes['train']:,}  "
           f"Val={split_sizes['val']:,}  Test={split_sizes['test']:,}")
 
-    # Split-aware truth filtering is built per split below; building an
-    # all-splits filter map here would cost a multi-GB pass over the
-    # materialized data and is never consumed.
-    scope_filter_maps = dl.compute_filter_maps_by_scope()
-
     # ── 3. Evaluation candidate pools (artist2artist policy applied) ──────
     eval_pools = {
         "train": dl.relation_to_valid_tails_eval_train,
@@ -271,6 +266,24 @@ def main():
             "relation_filter.relations is required when relation_filter.mode "
             "is not none"
         )
+
+    # Split-aware truth filtering is built per split below; building an
+    # all-splits filter map here would cost a multi-GB pass over the
+    # materialized data and is never consumed.
+    # Under train_eval every prepared query uses the target relations, so the
+    # scope truth maps only need those relations — restricting the subset
+    # shrinks them from gigabytes to kilobytes. eval_only keeps the full maps
+    # because its train split prepares queries for every relation.
+    if relation_filter_mode == "train_eval":
+        filter_relation_ids = sorted(
+            relation_to_id[name] for name in target_relations
+            if name in relation_to_id)
+        print(f"  Scope truth maps restricted to "
+              f"{len(filter_relation_ids)} target relations")
+    else:
+        filter_relation_ids = None
+    scope_filter_maps = dl.compute_filter_maps_by_scope(
+        relation_ids=filter_relation_ids)
     output_dir = config["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
 
