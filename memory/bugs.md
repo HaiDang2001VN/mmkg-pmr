@@ -68,6 +68,15 @@ Code and configuration work is complete; only artifact regeneration/retraining (
 - **F17 — accepted hot loops** — per-column token assembly, reconstruction L2 loop, and per-triple `pool_set` rebuilds remain; they are bounded (max_N=6, smoke-only, rejection fallback) and were deliberately left untouched. *(Accepted in this wave.)*
 - **Dead code removed** — `load_vlkge_model` (superseded by `train_pamr.py`'s inline loader) and the unused `_make_padding_mask` are gone. *(Resolved in this wave.)*
 
+### Worker v2 hardening — full re-read audit (resolved in this wave)
+A complete re-read of `preprocess.cpp` (861 lines) and `preprocess.py` after the v2 rewrite found no memory leaks (all RAII, clean destruction on every path) but four defects/robustness gaps, now fixed and verified:
+- **C1 — empty-graph/OOB-head crash in the shared forward BFS.** Was: `bfs_levels` for the group head ran before the per-probe OOB guard, so an edge-less graph (`g.n == 0`) or a head beyond the node range indexed empty arena vectors (UB crash; v1 tolerated this as hash-map misses). Now: the shared search is skipped when `head_probe.head_id >= g.n`; every such probe is OOB-guarded and emitted as no-path. Regression fixture: edge-less graph → rc=0, all probes `-1`.
+- **C2 — negative/oversized fields crashed the CSR build.** Was: `degree[f[0]]++` with a negative node id wrote out of bounds, and `pack_rev` with a relation id ≥ 2^30 corrupted the packed direction bit. Now: `graph_row_valid` (non-negative node ids, packed relation ids < 2^30, full-int types after widening `types` to int32) is applied identically in all three loading passes; skipped rows are counted and summarized as one `[Warn]` line. Regression fixture: negative-id and oversized-relation rows are warn-skipped and the valid search is intact.
+- **C3 — LineReader fabricated a premature EOF on a >chunk line.** Was: a "line" filling the whole 16 MB chunk with no newline made `read()` return 0 and set `eof_` while the file continued (silent data loss for pathological input). Now: the buffer doubles when full instead of reading zero bytes.
+- **C4 — negative `max_hops` crashed the fanout-table allocation** (`vector` size_t conversion). Now clamped to 0 (every probe becomes no-path, rc=0).
+- Python cosmetics: module docstring updated to the v2 process model, unused `numpy` import removed, the merge's legacy `h == 0` self-count branch annotated (v2 emits self-probes as `hops=-1`).
+- Re-verified after hardening: 7/7 v1-vs-v2 equivalence cases MATCH, calibration rc=0, out-of-range warns appear, negative-hops fixture rc=0, and v2 remains byte-deterministic across runs.
+
 ---
 
 ## 2. Partially resolved — code present, known gaps

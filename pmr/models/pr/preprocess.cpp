@@ -144,6 +144,15 @@ public:
                 memmove(buf_.data(), buf_.data() + pos_, carry);
             }
             pos_ = 0;
+            if (carry == buf_.size()) {
+                // A single line fills the whole chunk: grow instead of
+                // reading zero bytes, which would fabricate a premature EOF.
+                if (eof_) {
+                    return false;
+                }
+                buf_.resize(buf_.size() * 2);
+                continue;
+            }
             ssize_t got = ::read(fd_, buf_.data() + carry,
                                  buf_.size() - carry);
             if (got <= 0) {
@@ -223,7 +232,7 @@ struct Graph {
     int32_t n = 0;             // node id upper bound (max id + 1)
     vector<int32_t> offsets;   // n + 1
     vector<PackedEdge> edges;  // sorted, deduped per slice
-    vector<int8_t> types;      // n, 0 = untyped default
+    vector<int32_t> types;     // n, 0 = untyped default (full int range)
     int32_t max_rel = -1;
 
     inline void slice(int32_t u, int64_t &eb, int64_t &ee) const {
@@ -276,6 +285,17 @@ static bool parse_fields(const char *lb, const char *le, int32_t out[6],
     return true;
 }
 
+// Graph-row range validation shared by every loading pass so all three
+// passes agree on which rows count. Node ids must index the CSR arrays
+// (non-negative); packed relation ids must stay below 2^30 so the direction
+// bit in rev_and_flag is lossless. Types keep the full int range.
+static inline bool graph_row_valid(const int32_t f[6], int nf) {
+    if (f[0] < 0 || f[1] < 0) return false;
+    if (f[4] < 0 || f[4] >= (1 << 30)) return false;
+    if (nf >= 6 && (f[5] < 0 || f[5] >= (1 << 30))) return false;
+    return true;
+}
+
 static void push_query(vector<Query> &queries, vector<GroupRun> &groups,
                        const Query &q) {
     if (groups.empty()
@@ -303,6 +323,7 @@ static bool load_graph(const string &path, ofstream &log, Graph &g) {
         int nf;
         while (reader.next_line(lb, le)) {
             if (!parse_fields(lb, le, f, nf, 5)) continue;
+            if (!graph_row_valid(f, nf)) continue;
             if (f[0] > max_node) max_node = f[0];
             if (f[1] > max_node) max_node = f[1];
             if (f[4] > max_rel) max_rel = f[4];
@@ -323,6 +344,7 @@ static bool load_graph(const string &path, ofstream &log, Graph &g) {
     vector<uint8_t> typed(nodes, 0);
     g.types.assign(nodes, 0);
     int32_t typed_count = 0;
+    int64_t skipped_range = 0;
     reader.rewind_to_data();
     {
         const char *lb, *le;
@@ -330,19 +352,27 @@ static bool load_graph(const string &path, ofstream &log, Graph &g) {
         int nf;
         while (reader.next_line(lb, le)) {
             if (!parse_fields(lb, le, f, nf, 5)) continue;
+            if (!graph_row_valid(f, nf)) {
+                ++skipped_range;
+                continue;
+            }
             ++degree[f[0]];
             ++degree[f[1]];
             if (!typed[f[0]]) {
                 typed[f[0]] = 1;
-                g.types[f[0]] = static_cast<int8_t>(f[2]);
+                g.types[f[0]] = f[2];
                 ++typed_count;
             }
             if (!typed[f[1]]) {
                 typed[f[1]] = 1;
-                g.types[f[1]] = static_cast<int8_t>(f[3]);
+                g.types[f[1]] = f[3];
                 ++typed_count;
             }
         }
+    }
+    if (skipped_range > 0) {
+        log << "[Warn] " << skipped_range << " graph rows skipped "
+            << "(out-of-range node/relation ids)" << endl;
     }
 
     // Prefix sums, fill (pass 3), sort + dedupe per slice (compacted in
@@ -365,6 +395,7 @@ static bool load_graph(const string &path, ofstream &log, Graph &g) {
         int nf;
         while (reader.next_line(lb, le)) {
             if (!parse_fields(lb, le, f, nf, 5)) continue;
+            if (!graph_row_valid(f, nf)) continue;
             edges[cursor[f[0]]++] = {f[1], f[4], pack_rev(f[5], false)};
             edges[cursor[f[1]]++] = {f[0], f[5], pack_rev(f[4], true)};
         }
@@ -652,8 +683,14 @@ static void run_thread(int tid, int num_threads, const Graph &g,
         const Query &head_probe = queries[run.lo];
 
         // ── shared forward BFS from the query head (no own-edge mask) ────
-        bfs_levels(g, fwd, head_probe.head_id, max_hops, fanout_limit,
-                   target_denied, false, head_probe, false, nullptr, nullptr);
+        // Heads beyond the graph's node range (or an edge-less graph, where
+        // no node exists) skip the shared search; every probe of the group
+        // is OOB-guarded below and emitted as no-path.
+        if (head_probe.head_id < g.n) {
+            bfs_levels(g, fwd, head_probe.head_id, max_hops, fanout_limit,
+                       target_denied, false, head_probe, false, nullptr,
+                       nullptr);
+        }
 
         for (size_t j = run.lo; j < run.hi; ++j) {
             const Query &q = queries[j];
@@ -753,7 +790,10 @@ int main(int argc, char **argv) {
     const string graph_csv     = argv[1];
     const string queries_csv   = argv[2];
     const string output_prefix = argv[3];
-    const int    max_hops      = stoi(argv[4]);
+    const int    max_hops_raw  = stoi(argv[4]);
+    // Non-positive hop counts degenerate to "no search" (every probe becomes
+    // no-path); a negative value must not reach the fanout table allocation.
+    const int    max_hops      = max_hops_raw < 0 ? 0 : max_hops_raw;
     const int    max_fanout    = stoi(argv[5]);
     const float  decay_factor  = stof(argv[6]);
     const int    worker_arg    = stoi(argv[7]);  // vestigial invocation arg

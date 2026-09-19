@@ -1,9 +1,10 @@
 """
-Path-Relation (PR) preprocessor — Python wrapper for bidirectional BFS over KGs.
+Path-Relation (PR) preprocessor — Python wrapper for BFS path extraction.
 
 Reads a YAML config, converts prepare.py negative-sampled query CSVs into
-graph and query input files for a compiled C++ binary, spawns parallel OS
-processes for path search, and merges results.
+graph and query input files for the compiled C++ worker, runs the worker
+(one process with num_threads internal threads), and merges the per-thread
+part files into per-split path CSVs.
 
 Usage:
     python -m pmr.models.pr.preprocess --config configs/pr/wikiart_mkg_v2_paths.yaml
@@ -19,7 +20,6 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -607,6 +607,9 @@ def main():
                         if h == -1:
                             missing_total += 1
                         elif h == 0 and len(nodes.split(",")) <= 2:
+                            # Worker v2 emits self-probes as hops=-1, so this
+                            # branch stays at 0; retained for any legacy
+                            # worker output that still encodes 0-hop rows.
                             self_total += 1
                         else:
                             found_total += 1
