@@ -1,0 +1,44 @@
+# Smoke: VLKGE scoring with GPU/timing metrics logging.
+#
+# Self-contained — no references to other configs. Paths are relative
+# and resolve via resolve_config_paths(base_dir=config_dir, repo_root=mmkg-pmr).
+#
+# Usage:
+#   python -m pmr.models.vlkge.score --config configs/eval/smoke_score.yaml
+
+dataset: wikiart_mkg_v2
+data_path: ../data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+
+visual_features_path: ../data/wikiart_mkg_v2/features/wikiart_mkg_v2_vf_clip.pkl
+textual_features_path: ../data/wikiart_mkg_v2/features/wikiart_mkg_v2_tf_clip.pkl
+normalize_visual: false
+normalize_textual: false
+
+model: ComplEx
+embedding_dim: 768
+fusion_mode: average
+use_structural: true
+use_visual: true
+use_textual: true
+freeze_visual: true
+freeze_textual: true
+
+inductive: true
+modality_asymmetry: true
+use_per_relation_candidates: true
+bidirectional_eval: false
+exclude_relations_eval:
+  - isRelatedToArtwork
+  - isRelatedToArtist
+artist2artist_relations:
+  - isInfluencedBy
+  - isInfluencedOn
+  - isPupilOf
+  - isTeacherOf
+
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2/
+checkpoint_path: ../checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2.pt
+
+batch_size: 512
+log_metrics: true
+seed: 42

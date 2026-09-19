@@ -1,0 +1,30 @@
+# VLKGE score config — reference mode.
+#
+# Scores every query through the frozen VLKGE model and writes
+# {split}_scores.csv + optional {split}_score_metrics.json.
+#
+# Usage:
+#   python -m pmr.models.vlkge.score --config configs/eval/vlkge_score.yaml
+#
+# For other models / modes, override --checkpoint_path and --output_dir
+# via CLI args, or edit the keys below.
+
+prepare_config: wikiart_mkg_v2_neg_sampling.yaml
+model_config: ../wikiart_mkg_v2/complex_clip.yaml
+
+checkpoint_path: /workspace/checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2.pt
+output_dir: /workspace/checkpoints/preproc/wikiart_mkg_v2/full/vlkge/ComplEx/full/
+
+batch_size: 2048
+
+seed: 42
+log_metrics: true
+
+# Optional: filter to score only specific relations
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf

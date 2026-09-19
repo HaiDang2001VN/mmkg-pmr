@@ -1,0 +1,707 @@
+% This is samplepaper.tex, a sample chapter demonstrating the
+% LLNCS macro package for Springer Computer Science proceedings;
+% Version 2.21 of 2022/01/12
+%
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+% T1 fonts will be used to generate the final print and online PDFs,
+% so please use T1 fonts in your manuscript whenever possible.
+% Other font encondings may result in incorrect characters.
+%
+
+\usepackage{graphicx}
+\usepackage{epsfig}
+\usepackage{subcaption}
+\usepackage{calc}
+\usepackage{amssymb}
+\usepackage{amstext}
+\usepackage{amsmath}
+\usepackage{multicol}
+\usepackage{pslatex}
+\usepackage{algorithm2e}
+\usepackage[bottom]{footmisc}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{svg}
+
+% Used for displaying a sample figure. If possible, figure files should
+% be included in EPS format.
+%
+% If you use the hyperref package, please uncomment the following two lines
+% to display URLs in blue roman font according to Springer's eBook style:
+%\usepackage{color}
+%\renewcommand\UrlFont{\color{blue}\rmfamily}
+%\urlstyle{rm}
+%
+\begin{document}
+%
+\title{PAMR: Link Prediction on Knowledge Graphs via Path-Aware Multi-modal Reasoning}
+%
+\titlerunning{Link Prediction on KG via Path-Aware Multi-modal Reasoning}
+% If the paper title is too long for the running head, you can set
+% an abbreviated paper title here
+%
+\author{Hai-Dang Huynh-Lam\inst{1,2}\orcidID{0000-0001-9487-7281} \and
+  Ngoc-Thao Nguyen\inst{1,2}\orcidID{1111-2222-3333-4444} \and
+Ngoc-Thanh Le\inst{1,2}\orcidID{0009-0009-6426-2652}}
+%
+\authorrunning{Hai-Dang et al.}
+% First names are abbreviated in the running head.
+% If there are more than two authors, 'et al.' is used.
+%
+\institute{
+  Faculty of Information Technology, University of Science, Ho Chi Minh City, Vietnam
+  % \email{lncs@springer.com}\\
+  % \url{http://www.springer.com/gp/computer-science/lncs}
+  \and
+  Vietnam National University, Ho Chi Minh City, Vietnam\\
+\email{\{hlhdang,nnthao,lnthanh\}@fit.hcmus.edu.vn}}
+%
+\maketitle  % typeset the header of the contribution
+%
+\begin{abstract}
+  The abstract should briefly summarize the contents of the paper in
+  150--250 words.
+
+  \keywords{Knowledge Graph \and Multi-modal Learning \and Path-based Reasoning \and Link Prediction \and Transformers.}
+\end{abstract}
+%
+%
+%
+
+\section{\uppercase{Introduction}}
+\label{sec:introduction}
+
+% TODO: Expand this section with full introduction narrative.
+% Should include: problem motivation, background on KGs and link prediction,
+% challenges of multimodal reasoning, contributions list.
+
+\paragraph{PAMR.}
+The proposed framework, \textbf{Path-Aware Multimodal Reasoning (PAMR)}, addresses
+link prediction on multimodal knowledge graphs by scoring structural paths between
+query entities using a Transformer encoder over frozen KGE token embeddings.
+
+\paragraph{Contributions.}
+PAMR introduces two key design choices: (i)~a paired sampling scheme that, unlike
+conventional uniform negative sampling, yields batches with exactly balanced positive
+and negative examples per query, and (ii)~a token representation that concatenates
+real and imaginary relation embeddings while using only the fused real entity
+representation. These design choices enable the Transformer to learn discriminative
+path representations from frozen KGE token embeddings without modifying the underlying
+knowledge graph representations.
+
+\section{\uppercase{Related Work}}
+\label{sec:related-work}
+
+The development of the PAMR framework lies at the intersection of several core research areas in artificial intelligence, including graph-based relational reasoning, multimodal representation learning, and sequential modeling. In this section, we survey the literature across three foundational dimensions to establish the methodological context and justify the necessity of PAMR.
+
+\subsection{Path-Based Reasoning on Knowledge Graphs}
+\label{sec:rw-path-reasoning}
+
+Path-based reasoning on knowledge graphs extends conventional single-hop link prediction by extracting and evaluating multi-hop relational sequences that connect source and target entities. Foundational methods in this domain relied heavily on statistical random walks, such as the Path Ranking Algorithm (PRA)~\cite{lao2011random}. The transition to deep learning introduced architectures like NeuralLP~\cite{yang2017differentiable} and RNNLogic~\cite{qu2021rnnlogic}, which formulate path extraction as differentiable logic programming or probabilistic modeling, respectively, enabling end-to-end learning of logical rules. Concurrently, deep reinforcement learning (RL) was adapted to navigate graph spaces. DeepPath~\cite{xiong2017deeppath} and MINERVA~\cite{das2018go} model pathfinding as a Markov Decision Process, where an agent learns to step toward the target entity using shaped rewards. To mitigate the sparse reward issues common in long-path traversal, DIVA~\cite{chen2018variational} framed the problem as variational inference, while CURL~\cite{zhang2022learning} proposed a multi-agent hierarchical RL framework.
+
+More recently, graph neural networks (GNNs) and sequence-to-sequence models have been employed to efficiently encode path structures. RED-GNN~\cite{zhang2022knowledge} and NBFNet~\cite{zhu2021neural} parameterize the Bellman-Ford algorithm with neural components to capture generalized path representations through message passing. AdaProp~\cite{zhang2023adaprop} improves upon this by adaptively filtering propagation paths, while SQUIRE~\cite{bai2022squire} introduces a Transformer-based sequence-to-sequence framework that translates queries directly into paths. However, most path-based methods rely on learned rather than frozen embeddings, use reinforcement learning or message-passing rather than Transformers, and do not handle multimodal entities. This interwining between embedding and the sequential modeling process increases computational burden and limiting the ability to leverage advanced representations.
+
+\subsection{Multimodal Knowledge Graph Embeddings}
+\label{sec:rw-mmkge}
+
+Multimodal knowledge graph embedding (MMKGE) seeks to overcome the structural sparsity of traditional KGs by injecting auxiliary modalities, such as images and text, into the representation learning process. Early approaches, such as IKRL~\cite{xie2017image} and TransAE~\cite{wang2019transae}, demonstrated that aligning visual and textual features with structural embeddings could resolve entity ambiguity and improve link prediction. The MMKG dataset collection~\cite{liu2019mmkg} further established baselines for numeric and visual entity matching. Subsequent models focused on filtering modality noise and handling structural complexity; for instance, RSME~\cite{wang2021rsme} uses a forget-gate mechanism to discard conflicting multimodal signals, while OTE~\cite{tang2020orthogonal} maps multimodal entities via orthogonal relation transforms to preserve topological distances. Additionally, MMRNS~\cite{xu2022multimodal} incorporates cross-modal attention to enhance negative sampling with multimodal semantics.
+
+State-of-the-art MMKGE architectures increasingly rely on Transformers. MKGformer~\cite{chen2022mkgformer} employs a hybrid multi-level fusion approach to integrate visual and textual representations. MoSE~\cite{zhao2022mose} introduces a modality-split framework to prevent interference during fusion, and VISTA~\cite{lee2023vista} extends multimodal encoding directly to the triplet level using specialized decoding Transformers. Finally, VL-KGE~\cite{efthymiou2026vlkge} leverages vision-language models to handle modality asymmetry in large-scale graphs. Notably, existing multimodal KGE methods fuse modalities into a single entity embedding but do not expose multimodal token sequences to a path-aware Transformer for reasoning, as the fusion primarily serves triple scoring rather than path discrimination. Therefore, no widely used benchmark treats multimodal information as entities on the graph that can connect to different conceptual entities rather than being bound to a single entity. This multimodal-as-entity setting is what the proposed method evaluates on.
+
+\subsection{Transformers for Knowledge Graph Reasoning}
+\label{sec:rw-transformers}
+
+The application of Transformers and pre-trained language models to KGs leverages self-attention mechanisms to contextualize relational data. KG-BERT~\cite{yao2019kg} pioneered this by treating triples as natural language sequences for sequence classification. To address the computational bottleneck of cross-encoding every candidate, StAR~\cite{wang2021star} partitions triples into asymmetric context representations. Moving beyond purely textual encoding, CoKE~\cite{wang2019coke} tokenizes graph structures, passing edge and path sequences through a Transformer encoder to learn context-adaptive embeddings. HittER~\cite{chen2021hitter} extracts features through a hierarchical architecture, aggregating local neighborhood information using masked entity prediction.
+
+For complex logical queries, KG-Transformer~\cite{liu2022mask} utilizes a masked pre-training strategy coupled with a Mixture-of-Experts sparse activation. Generative and prompt-based paradigms have also emerged, with KGT5~\cite{saxena2022kgt5} formulating link prediction as a sequence-to-sequence task, GenKGC~\cite{zhu2022genkgc} utilizing relation-guided prompts for target generation, and CSPrompter~\cite{chen2023csprompter} bridging the gap between symbolic logic and large language models via consistent structure prompting. However, Transformer-based KG methods typically encode triples or subgraphs rather than interleaved path sequences, use language-model pretraining rather than frozen KGE embeddings, and mostly target static text KGs rather than multimodal graphs, let alone the multimodal graphs under multimodal-as-entity setting.
+
+% \subsection{Evaluation Approaches}
+% \label{sec:rw-evaluation}
+
+% Evaluation of link prediction models spans both training signal quality
+% and test protocol rigor. Margin-based ranking losses, widely used in
+% this domain, rely heavily on negative sampling quality. Traditional
+% uniform random sampling~\cite{bordes2013translating} or Bernoulli
+% distributions~\cite{wang2014knowledge} often yield easily
+% distinguishable or false-negative samples, while self-adversarial
+% weighting~\cite{sun2019rotate} and generative adversarial frameworks
+% like KBGAN~\cite{cai2018kbgan} improve gradient informativeness at
+% the cost of training stability. More efficient alternatives such as
+% NSCaching~\cite{zhang2019nscaching} and CAKE~\cite{niu2022cake}
+% achieve adversarial-level performance through cached hard negatives
+% and commonsense priors, respectively. However, these methods are
+% designed for triple-level discrimination and do not guarantee balanced
+% positive-to-negative ratios per batch, making them unsuitable for
+% path-level paired sampling.
+
+% Standardized benchmarks complement these training-side advances by
+% providing rigorous test protocols. WN18RR~\cite{dettmers2018convolutional}
+% and FB15k-237~\cite{toutanova2015observed} eliminate test-set leakage
+% and inverse relation bias, while
+% YAGO3-10~\cite{mahdisoltani2013yago3} evaluates scalability across
+% multilingual data. With the shift towards multimodality,
+% domain-specific graphs like WikiArt-MKG~\cite{efthymiou2026vlkge}
+% offer heterogeneous structures spanning artworks, artists, and textual
+% attributes. Recent surveys~\cite{niu2025survey,liang2024survey} have
+% cataloged these developments by task orientation and graph type.
+% Nevertheless, standard benchmarks are either purely structural without
+% multimodal features, or lack explicit path annotations for
+% supervision, leaving WikiArt-MKG as the only dataset that combines
+% both properties yet has not been used for Transformer-based path
+% reasoning.
+
+Taken together, existing work leaves several open questions that PAMR addresses: how to explicitly execute path-aware reasoning on heterogeneous multimodal entities, how to parse and project frozen complex-valued KGEs into a Transformer's token space without initialization deadlock, and how to stabilize sequence ranking via a perfectly balanced query-level paired sampling mechanism.
+
+\section{Method}
+\label{sec:method}
+\subsection{Overview}
+\label{sec:overview}
+
+A KG is a directed multi-relational graph
+$\mathcal{G} = (\mathcal{V}, \mathcal{E}, \mathcal{R})$ where
+$\mathcal{V}$ is a set of entities, $\mathcal{R}$ a set of relation types,
+and $\mathcal{E} \subseteq \mathcal{V} \times \mathcal{R} \times \mathcal{V}$
+a set of labelled edges. Each edge $(s, r, o) \in \mathcal{E}$
+denotes that subject entity $s$ is connected to object entity $o$
+via relation $r$.
+
+Path-based reasoning focuses on using structural paths and connection
+patterns within KGs to infer new relations or answer queries. Given
+a query $(s, r, ?)$, the target is to approximate the conditional
+distribution $P(\hat{o} \mid s, r, \mathcal{G})$ over candidate
+objects $\hat{\mathbb{O}}$. By using the shortest paths $p_o$ between $s$ and $\hat{o}$ in $\mathcal{G}$ as the most important factor contributing to the distribution,
+the target reduces to $P(p_o \mid s, r)$. A scoring function
+$\hat{f}_\theta$ is learned to predict this target and then assigns a real-valued score to each path given the
+query relation $r$, afterward the candidate with the highest-scoring path is selected as the answer.
+
+In a MMKG, entities are associated with heterogeneous modalities, for example artworks are inherently visual, while artists,
+styles, genres, and locations are characterized textually. We model
+this as a multimodal-as-attachment setting, where each entity $v \in \mathcal{V}$
+possesses modality-specific embeddings $\mathbf{v}_i$ indexed by
+$i \in \mathbb{M}$, with $\mathbb{M}$ denoting the modality set.
+The unified embedding $\mathbf{v}$ is obtained
+by aggregating over available modalities: $\mathbf{v} =
+\text{AGGREGATE}_{i \in \mathbb{M}} (\mathbf{v}_i)$. In this proposal, we formulate the MMKG setting of modality-as-entity where each modality information is converted to a separate entity, this creates a mapping $\mathcal{M}: \mathcal{V} \to \mathbb{M}$ that maps each entity to its original modality.
+
+The proposed method, PAMR, consists of four components. First, a frozen
+pre-trained KGE model supplies token embeddings for entities and relations.
+Second, a bidirectional BFS extracts shortest paths between query pairs under the modality-as-entity setting.
+Third, a Transformer encoder scores each path by contextualising
+interleaved entity and relation tokens. Fourth, a margin-based ranking
+loss trains the scorer on paired positive and negative paths. Each
+component is detailed in the following subsections.
+
+\subsection{Embedding Module}
+\label{sec:embedding-module}
+
+To supply pre-encoded relational structure without incurring additional
+training cost, we use a frozen pre-trained KGE model.  A KGE model
+learns entity embeddings $\mathbf{E} \in \mathbb{H}^{|\mathcal{V}|}$
+and relation embeddings $\mathbf{R} \in \mathbb{H}^{|\mathcal{R}|}$
+such that a scoring function $h: \mathcal{V} \times \mathcal{R} \times
+\mathcal{V} \to \mathbb{R}$ assigns higher values to true triples
+than to false ones.  The embedding space $\mathbb{H}$ is a
+$D$-dimensional continuous manifold.
+
+In a multimodal KG, entities possess heterogeneous modalities.
+VL-KGE~\cite{efthymiou2026vlkge} constructs a unified embedding for
+every entity by fusing its available modalities into a single point
+in $\mathbb{H}$.  For each entity $v \in \mathcal{V}$, let
+$\mathcal{M}(v) \subseteq \mathbb{M}$ denote the set of available
+modalities.  The unified entity embedding $\mathbf{v}$ is obtained
+by averaging over available modalities:
+$\mathbf{v} = \frac{1}{|\mathcal{M}(v)|} \sum_{i \in \mathcal{M}(v)} \mathbf{v}_i$,
+where $\mathbf{v}_i$ is the modality-specific embedding for modality
+$i \in \mathbb{M}$.  This per-entity averaging naturally handles
+modality asymmetry, where different entity types carry different
+modality combinations without requiring a fixed global fusion scheme.
+
+The effective dimensionality of entity and relation representations
+depends on the KGE architecture: complex-valued models output $2D$
+dimensions while real-valued models output $D$. The Transformer
+hidden dimension is set to $d_{\text{model}} = \max(d_{\mathcal{V}},
+d_{\mathcal{R}})$, and two learnable linear projections align entity
+and relation token dimensions to $d_{\text{model}}$. These
+projections are learned during PAMR training while the KGE model
+remains frozen.
+
+\subsection{Path Extraction}
+\label{sec:path-extraction}
+
+To provide the Transformer with explicit, interpretable connectivity evidence rather than
+relying solely on the implicit proximity captured by KGE embeddings, we extract shortest
+paths between query pairs via bidirectional breadth-first search (BFS), bounded by a
+maximum hop count $K$.
+
+\paragraph{Multimodal and non-multimodal configurations.}
+We define two graph configurations that produce qualitatively different path spaces.
+The multimodal configuration $\mathcal{G}_{\text{multimodal}}$ comprises the complete
+graph with all entity types, where paths may bridge across different entity types,
+exploiting cross-type relationships for reasoning.  The concept-only configuration
+$\mathcal{G}_{\text{concept}}$ restricts the graph to conceptual entities and
+edges where both endpoints are conceptual, confining paths to a homogeneous
+subgraph that excludes multimodal information.  The latter corresponds to
+Path-Aware Reasoning (PAR), which relies solely on structural connectivity
+without multimodal signals.
+
+Formally, a path $p$ between $s$ and $\hat{o}$ comprises $\ell + 1$ edges, where
+$\ell$ denotes the hop count bounded by $K$.
+Paths with $\ell \leq 0$ are excluded from training and evaluation as they
+carry no structural reasoning signal, which include unreachable pairs and
+trivial self loops.
+
+\subsection{PAMR Architecture}
+\label{sec:pamr-architecture}
+
+\subsubsection{Token Interleaving}
+\label{sec:token-interleaving}
+
+% TODO: remove overused text bold in verbal text, use math notations that are used in prior sections, embedding notations should re-use the embedding module before rather than let new definition here. replace \mathbf{r}_q with \mathbf{r} only as this only has single query relation r, use d instead of d_model as we use same dimension as prior embedding, L rather than L_tr. Remove the mentioning of node type embeddings also. The length of position encoding is based on max hop count K defined in earlier subsection where the length of vectorized path associated with this K hops is 2K + 3.
+To encode path structure as a flat sequence, entity and relation tokens are interleaved
+with a classification token and the query relation prepended.
+Let $\mathbf{e}^{\text{raw}}_i \in \mathbb{R}^{d_{\mathcal{V}}}$ be the raw KGE embedding
+of entity $i$ and $\mathbf{r}^{\text{raw}}_j \in \mathbb{R}^{d_{\mathcal{R}}}$ the raw
+relation embedding of relation $j$.
+Projected token embeddings are:
+\begin{equation}
+  \mathbf{v}_i = \operatorname{Proj}_{\mathcal{V}}(\mathbf{e}^{\text{raw}}_i),\qquad
+  \mathbf{r}_j = \operatorname{Proj}_{\mathcal{R}}(\mathbf{r}^{\text{raw}}_j)
+  \label{eq:token-proj}
+\end{equation}
+both lying in $\mathbb{R}^{d_{\text{model}}}$.
+A path with $\ell$ hops comprises $\ell+1$ entity tokens and $\ell$ edge tokens.
+These are interleaved into a token sequence of length $L = 2\ell + 1$:
+\begin{equation}
+  \mathbf{T} = \bigl[\mathbf{c};\; \mathbf{r}_q;\;
+    \mathbf{v}_{\mathbf{s}};\; \mathbf{r}_{1};\; \mathbf{v}_{2};\; \mathbf{r}_{2};\;
+  \mathbf{v}_{3};\; \ldots;\; \mathbf{v}_{\mathbf{o}}\bigr]
+  \in \mathbb{R}^{L \times d_{\text{model}}}
+  \label{eq:token-seq}
+\end{equation}
+Here $\mathbf{c} \in \mathbb{R}^{d_{\text{model}}}$ is a learnable classification token
+at position 0, initialised from $\mathcal{N}(0, 0.02^2)$.
+$\mathbf{r}_q$ is the query
+relation representation at position 1, while entity tokens $\mathbf{v}_{\mathbf{s}}, \mathbf{v}_{2}, \ldots, \mathbf{v}_{\mathbf{o}}$
+occupy positions $2 + 2i$ for $i = 0, \ldots, \ell$, and edge tokens $\mathbf{r}_{1}, \ldots, \mathbf{r}_{\ell}$
+occupy positions $3 + 2i$ for $i = 0, \ldots, \ell - 1$.
+Entity positions receive additive \textbf{node type embeddings}
+$\boldsymbol{\tau}_i \in \mathbb{R}^{d_{\text{model}}}$ from a learned embedding table
+with one entry per node type plus a padding zero.
+All positions receive \textbf{absolute positional embeddings}
+$\mathbf{p}_i = \operatorname{PE}(i)$ via a learned embedding
+$\operatorname{PE}: \{0, \ldots, L-1\} \to \mathbb{R}^{d_{\text{model}}}$.
+The final token input to the Transformer is:
+\begin{equation}
+  \mathbf{T}^{\text{in}}_i = \mathbf{T}_i \;+\; \mathbf{p}_i \;+\; \boldsymbol{\tau}_{\tau(i)} \cdot \mathbb{1}_{\mathcal{V}}(i)
+  \label{eq:token-in}
+\end{equation}
+Here $\mathbb{1}_{\mathcal{V}}(i) = 1$ iff position $i$ is an entity position.
+\subsubsection{Transformer Encoder}
+
+\label{sec:transformer-encoder}
+% TODO: use d' instead of d_ff
+The token sequence is contextualised through a stack of $L_{\text{tr}}$
+Transformer encoder layers~\cite{vaswani2017attention} with $h$ attention heads each:
+\begin{equation}
+  \mathbf{H}^{(0)} = \mathbf{T}^{\text{in}},\qquad
+  \mathbf{H}^{(l)} = \operatorname{EncLayer}^{(l)}\bigl(\mathbf{H}^{(l-1)},\; \mathbf{M}\bigr)
+  \quad (l = 1, \ldots, L_{\text{tr}})
+  \label{eq:transformer}
+\end{equation}
+Here $\mathbf{M} \in \{0, 1\}^{L}$ is a padding mask ($\mathbf{M}_i = 1$ indicates an
+invalid position) for paths shorter than the batch maximum $N_{\max}(\mathcal{B})$.
+Each encoder layer applies:
+\begin{align}
+  \tilde{\mathbf{H}} &= \operatorname{LayerNorm}\bigl(
+  \mathbf{H}^{(l-1)} + \operatorname{MHA}(\mathbf{H}^{(l-1)}; \mathbf{M})\bigr)
+  \label{eq:attn}\\
+  \mathbf{H}^{(l)} &= \operatorname{LayerNorm}\bigl(
+  \tilde{\mathbf{H}} + \operatorname{FFN}(\tilde{\mathbf{H}})\bigr)
+  \label{eq:ffn}
+\end{align}
+with $\operatorname{FFN}(\mathbf{x}) = \mathbf{W}^{(2)} \operatorname{GELU}(\mathbf{W}^{(1)} \mathbf{x} + \mathbf{b}^{(1)}) + \mathbf{b}^{(2)}$
+and inner dimension $d_{\text{ff}} = 4 \times d_{\text{model}}$.
+GELU~\cite{hendrycks2016gaussian} activation
+and Post-LN layer normalisation are used throughout.
+
+\subsubsection{Readout and Scoring}
+
+\label{sec:readout}
+
+% TODO: convert from paragraph-based explanation to more verbal one where words are used instead of \paragraph{} commands, merge the block equation below into single inline equation by making w_2^T GELU(...) + b_2.
+To obtain a fixed-dimensional path representation, the contextualised token
+sequence is aggregated via one of two readout strategies from
+$\mathbf{H}^{(L_{\text{tr}})} \in \mathbb{R}^{L \times d_{\text{model}}}$:
+
+\begin{description}
+  \item[CLS.] $\mathbf{z} = \mathbf{H}^{(L_{\text{tr}})}[0, :] \in \mathbb{R}^{d_{\text{model}}}$, the classification token at position 0.
+  \item[Mean.] $\mathbf{z} = \frac{\sum_{i=0}^{L-1} \mathbf{H}^{(L_{\text{tr}})}[i, :] \cdot (1 - \mathbf{M}[i])}{\sum_i (1 - \mathbf{M}[i])}$, averaging over valid tokens.
+\end{description}
+
+A two-layer MLP maps $\mathbf{z}$ to a scalar score $s \in \mathbb{R}$:
+\begin{equation}
+  \mathbf{h} = \operatorname{GELU}\bigl(\mathbf{W}_1 \mathbf{z} + \mathbf{b}_1\bigr),
+  \qquad
+  s = \mathbf{w}_2^{\top} \mathbf{h} + b_2
+  \label{eq:readout}
+\end{equation}
+with dropout $p = 0.1$ applied after GELU.
+All linear layers use Xavier
+uniform initialisation and zero bias.
+
+\subsection{Training}
+
+\label{sec:training}
+
+To train a path scorer with stable supervision, each query must contribute equal gradient
+signal regardless of its number of negative samples.
+We construct a paired sampling
+dataset that guarantees both balance and fairness.
+\subsubsection{Paired Sampling}
+
+\label{sec:paired-sampling}
+
+For each query $q$, the query generation process produces one
+\textit{positive} path $p^+_q$, which connects $\mathbf{s}$ to the
+true object $\mathbf{o}$, and $K$ \textit{negative} paths
+$\mathcal{S}^-_q = \{p^-_{q,1}, \ldots, p^-_{q,K}\}$, which connect
+$\mathbf{s}$ to sampled false objects. To construct the paired
+dataset $\mathcal{D}_{\text{pair}}$, we iterate over each query $q$
+and pair every negative path $p^- \in \mathcal{S}_q^-$ with its
+corresponding positive $p^+_q$, appending each pair to an index
+$\mathcal{I}$. The total number of pairs equals $\sum_q
+|\mathcal{S}_q^-|$, ensuring that every negative is visited exactly
+once per epoch. Collation interleaves positive and negative pairs
+into flat sequences:
+$\operatorname{batch}(B) = [p^+_0, p^-_0, p^+_1, p^-_1, \ldots, p^+_{B-1}, p^-_{B-1}]$.
+Here $B$ is the query batch size. Each training batch contains
+exactly $B$ positive and $B$ negative samples, producing a guaranteed
+50/50 composition regardless of the underlying positive to negative
+ratio. Variable length paths are zero-padded to the batch maximum
+$N_{\max}(\mathcal{B}) = \max_{p \in \mathcal{B}} (\ell_p + 1)$
+entity tokens, with padding masks $\mathbf{M}$ as defined in
+Section~\ref{sec:token-interleaving}.
+\subsubsection{Loss Function}
+\label{sec:loss-functions}
+
+PAMR is trained with a margin-based ranking loss that groups samples
+by query identifier and enforces a margin between the positive score
+and all negative scores for that query. Let $\mathcal{B} = \{(s_1, y_1), \ldots, (s_{2B}, y_{2B})\}$
+denote a training batch with $y_i \in \{0, 1\}$. The loss is defined as:
+\begin{equation}
+  \mathcal{L}_{\text{rank}} = \frac{1}{|\mathcal{Q}_{\mathcal{B}}|} \sum_{q \in \mathcal{Q}_{\mathcal{B}}}\; \frac{1}{|S_q^+||S_q^-|} \sum_{s^+ \in S_q^+} \sum_{s^- \in S_q^-}
+  \max\bigl(0,\, m - s^+ + s^-\bigr)
+  \label{eq:loss-rank}
+\end{equation}
+Here $\mathcal{Q}_{\mathcal{B}}$ denotes the set of unique query identifiers in $\mathcal{B}$, and
+$m = 1.0$ is the margin. This loss directly optimises the ranking objective and prevents
+score collapse.
+
+\section{Experiment}
+\label{sec:experiment}
+\subsection{Implementation Details}
+\label{sec:implementation}
+
+All experiments run on a Vast.ai instance equipped with an NVIDIA
+GeForce RTX 5060 Ti and an AMD EPYC 7763 processor allocated with 8 threads
+and 16\,GB virtual RAM. The software stack comprises Python~3.11,
+PyTorch~2.7.1 with CUDA~12.8 and cuDNN~9.
+
+\paragraph{Path extraction.}
+The bidirectional BFS of Section~\ref{sec:path-extraction} is
+implemented in C++ (GNU GCC 13.2, compiled with C++23 standards)
+and invoked from Python. The graph adjacency list is loaded once
+into memory, and queries are distributed across 8 threads for
+parallel path search. Per-thread outputs are merged into a single
+path table per split. Precomputed paths are cached on disk as
+pickle files for fast reuse across training runs.
+
+\paragraph{GPU memory management.}
+To accommodate the large frozen embedding table alongside the trainable
+Transformer, GPU memory is managed through expandable memory segments
+and periodic cache defragmentation after model initialisation.
+
+\paragraph{Paired sampling implementation.}
+The paired dataset is constructed once per epoch from precomputed
+path tables, with per-query pairing parallelised across CPU cores.
+Variable length paths are zero-padded to the batch maximum and
+collated with padding masks as described in
+Section~\ref{sec:paired-sampling}.
+
+\paragraph{Training configuration.}
+PAMR is trained with AdamW~\cite{loshchilov2019decoupled} at learning
+rate $\eta = 0.01$, weight decay $\lambda = 0.01$, $\beta_1 = 0.9$,
+$\beta_2 = 0.999$. The ranking loss (Eq.~\ref{eq:loss-rank}) is
+used with margin $m = 1.0$. Batch size is 8 queries (16 samples per
+batch with the guaranteed 50/50 positive/negative composition).
+Training proceeds for 50 epochs. The Transformer encoder uses
+$L_{\text{tr}} = 8$ layers and $h = 8$ attention heads with
+$d_{\text{ff}} = 2048$ and dropout $p = 0.1$. The hidden dimension
+$d_{\text{model}} = 1536$ is auto-detected from the frozen VL-KGE
+model (ComplEx, $D = 768$). Only PAMR parameters are updated; the
+frozen VL-KGE model remains untouched.
+
+\subsection{Datasets}
+\label{sec:datasets}
+
+Experiments are conducted on WikiArt-MKG~v2~\cite{efthymiou2026vlkge},
+a large-scale multimodal knowledge graph of fine art containing
+224,166 entities and 22 relation types. Artworks are represented
+visually through image embeddings, while attributes such as styles,
+genres, years, and locations are represented textually. This modality
+asymmetry requires models to handle entities with different
+combinations of available modalities. The dataset comprises 224,166
+entities, 216,564 artworks and 7,602 attributes, connected by 22
+relation types, totalling 7,877,220 training triples, 208,513
+validation triples, and 208,368 test triples. The graph is split
+chronologically: training data precedes validation data, which in
+turn precedes test data. Negative samples are generated via rejection
+sampling with 1 negative per training query and 10 negatives per
+validation/test query. For evaluation, three relation types
+introduced as preprocessing inverses
+and 10 negatives per validation/test query. For evaluation, three
+relation types introduced as preprocessing inverses
+(\texttt{isRelatedToArtwork}, \texttt{isRelatedToArtist},
+\texttt{hasCreatedArtwork}) are excluded, leaving the four
+relations between artists (\texttt{isInfluencedBy},
+\texttt{isInfluencedOn}, \texttt{isPupilOf}, \texttt{isTeacherOf})
+as primary evaluation targets. These four relations are chosen
+because they connect artist entities, enabling evaluation under both
+multimodal and non-multimodal reasoning settings. In the complete
+graph, paths may traverse artworks and attribute entities such as
+styles, genres, years, and locations, exercising the model's ability
+to align visual and textual modalities. In the artist-only subgraph,
+artwork entities are excluded from path extraction while the same
+candidate set is retained, providing a controlled comparison that
+isolates the contribution of multimodal path structure.
+
+Path extraction uses bidirectional BFS with max hops $H = 5$, base
+fanout $F = 100$, and decay factor $\lambda = 0.5$
+(Section~\ref{sec:path-extraction}). Two graph configurations are
+evaluated: $\mathcal{G}_{\text{full}}$ (the complete graph with all
+entity types) and $\mathcal{G}_{\text{artist}}$ (the artist-only
+subgraph restricted to edges between artists).
+
+\subsection{Evaluation Metrics}
+\label{sec:evaluation-metrics}
+
+For each query, the model assigns a scalar score to every candidate
+object and ranks them in descending order. We report Mean Reciprocal
+Rank (MRR) and Hit-rate at cutoff $K$ (Hits@$K$), computed both
+globally and disaggregated by relation type.
+
+\subsection{Results}
+\label{sec:results}
+
+% TODO: splits into paragraphs including Comparative Study and Per-Relation Analysis, compress each parts to half the length with selection on more essential analysis among the existing one.
+Table~\ref{tab:results} reports macro-averaged MRR and Hits@$K$ across
+the four evaluation relations between artists. All methods share the same
+frozen ComplEx embeddings ($D = 768$, $d_{\text{model}} = 1536$) to
+ensure a fair comparison. The VL-KGE baselines score triples directly
+without path reasoning, while PAR uses only structural paths and PAMR
+additionally exploits multimodal token representations.
+
+\begin{table*}[t]
+  \centering
+  \setlength{\tabcolsep}{2pt}
+  \renewcommand{\arraystretch}{1.15}
+  {\footnotesize
+    \begin{tabular}{l|cccc|cc}
+      \toprule
+      \multirow{2}{*}{Metric} &
+      \multicolumn{4}{|c|}{VL-KGE Embedding Baselines} &
+      \multicolumn{2}{|c|}{Ours} \\
+      \cmidrule(lr){2-5} \cmidrule(lr){6-7}
+      & TransE & RotatE & DistMult & ComplEx & PAR & PAMR \\
+      \midrule
+      MRR  & 0.3196 & 0.3272 & 0.3107 & \underline{0.3630} & 0.2212 & \textbf{0.3789} \\
+      Hits@1 & 0.2832 & 0.1824 & 0.3181 & \textbf{0.3870} & 0.0576 & \underline{0.3455} \\
+      Hits@3 & 0.4938 & 0.4188 & 0.5283 & \textbf{0.6245} & 0.1987 & \underline{0.5759} \\
+      Hits@5 & 0.7032 & 0.5973 & 0.7046 & \underline{0.7719} & 0.3306 & \textbf{0.7819} \\
+      \bottomrule
+  \end{tabular}}
+  \caption{Macro-averaged ranking metrics across four evaluation
+    relations between artists. \textbf{Bold} indicates the best per metric;
+  \underline{underlines} indicate the second best.}
+  \label{tab:results}
+\end{table*}
+
+Table~\ref{tab:results} reveals a consistent ordering across method
+families. The results naturally stratify into three tiers: the four
+VL-KGE embedding baselines occupy a moderate performance band, the
+path-aware reasoning model, PAR, falls below this band, and the full
+multimodal path-aware model, PAMR, surpasses it. This ordering holds
+across all four metrics, with the strongest baseline, ComplEx, and PAMR
+trading first and second positions depending on the cutoff.
+
+Among the embedding baselines, ComplEx consistently outperforms the
+other three architectures, achieving 0.363~MRR and 0.625~Hits@3
+compared to the 0.31--0.33~MRR range of TransE, RotatE, and DistMult.
+This advantage is expected: ComplEx's Hermitian dot product captures
+asymmetric relations more effectively than the translation-based
+TransE, the diagonal DistMult, or the complex rotation of RotatE, all
+of which struggle with the diverse relation types in the art domain
+graph. TransE, RotatE, and DistMult cluster tightly together,
+differing by less than 0.02~MRR, suggesting that beyond ComplEx, the
+choice of scoring function has limited impact on this particular graph
+structure.
+
+The path-aware reasoning model (PAR) underperforms all four VL-KGE
+baselines, reaching only 0.221~MRR and 0.058~Hits@1. This gap is
+substantial: PAR scores nearly 40\% below the weakest baseline,
+DistMult at 0.311~MRR, and 73\% below ComplEx at Hits@1. The result
+indicates that explicit path topology alone, without access to
+multimodal entity features, provides weaker signal than the implicit
+relational proximity encoded in the KGE embeddings. In the artist-only
+subgraph $\mathcal{G}_{\text{artist}}$, paths consist solely of
+artist-to-artist edges, which lack the rich visual and textual
+attributes present on artwork and attribute entities. Without these
+multimodal tokens, the Transformer has limited discriminative capacity
+to distinguish factual from counterfactual paths.
+
+Adding multimodal token representations through PAMR closes this gap
+and surpasses the strongest baseline. PAMR achieves the best MRR
+at 0.379, a 4.4\% improvement over ComplEx, and the best Hits@5 at 0.782,
+a 1.3\% improvement. At the stricter cutoffs, PAMR remains
+competitive with ComplEx: Hits@1 reaches 0.345 versus ComplEx's 0.387,
+and Hits@3 reaches 0.576 versus ComplEx's 0.625. The gains at MRR
+and Hits@5, combined with competitive performance at Hits@1 and Hits@3,
+suggest that PAMR's path-based scoring improves the average rank of the
+true object across the candidate set, even when it does not always
+place the correct answer at the very top.
+
+The crossover between MRR/Hits@5, where PAMR leads, and Hits@1/Hits@3,
+where ComplEx leads, reveals a qualitative difference in scoring
+behavior. ComplEx's direct triple scoring concentrates probability
+sharply on a small set of candidates, occasionally placing the true
+object at rank~1 but with less consistency across the full ranking.
+PAMR's path-based scoring distributes probability more broadly, which
+improves the average reciprocal rank and deeper recall metrics while
+occasionally ceding the top position. This pattern aligns with the
+design goal of path-aware reasoning: the model leverages explicit
+structural evidence to make robust ranking decisions across the entire
+candidate set, rather than relying on a single high-confidence
+prediction. The multimodal tokens—image embeddings for artworks and
+text embeddings for attributes—provide the Transformer with richer
+input signals than the structural embeddings alone, enabling
+finer-grained discrimination between factual and counterfactual paths.
+
+To complement the macro-averaged results, Figures~\ref{fig:mrr},
+\ref{fig:hits1}, \ref{fig:hits3}, and~\ref{fig:hits5} present the
+per-relation breakdown for each metric. The four relations exhibit
+distinct performance profiles, indicating that the benefit of
+multimodal path reasoning depends on the relational context.
+
+\begin{figure*}[t]
+  \centering
+  \includesvg[width=\linewidth]{figures/MRR.svg}
+  \caption{Per-relation MRR across all methods.}
+  \label{fig:mrr}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includesvg[width=\linewidth]{figures/Hits1.svg}
+  \caption{Per-relation Hits@1 across all methods.}
+  \label{fig:hits1}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includesvg[width=\linewidth]{figures/Hits3.svg}
+  \caption{Per-relation Hits@3 across all methods.}
+  \label{fig:hits3}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includesvg[width=\linewidth]{figures/Hits5.svg}
+  \caption{Per-relation Hits@5 across all methods.}
+  \label{fig:hits5}
+\end{figure*}
+
+Two relations strongly favour PAMR. On \texttt{isPupilOf}, PAMR
+achieves 0.390~MRR and 0.909~Hits@5, the highest Hits@5 across all
+methods and relations, surpassing ComplEx by 0.038~MRR and
+0.091~Hits@5. On \texttt{isInfluencedOn}, PAMR attains 0.415 MRR,
+exceeding ComplEx by 0.090~MRR, the largest single-relation gap in
+the experiment. These relations connect artists through stylistic
+lineage and creative influence, where shared visual motifs and textual
+descriptions of artistic movements provide rich multimodal context.
+The Transformer can exploit these signals when scoring paths, enabling
+finer discrimination between factual and counterfactual continuations
+than ComplEx's direct triple scoring.
+
+In contrast, \texttt{isTeacherOf} and \texttt{isInfluencedBy} favour
+ComplEx. On \texttt{isTeacherOf}, ComplEx achieves 0.422~MRR versus
+PAMR's 0.390, and on \texttt{isInfluencedBy}, ComplEx reaches
+0.354~MRR versus PAMR's 0.321. These relations encode more abstract
+or indirect associations: teacher-of relationships may involve
+institutional or pedagogical connections that are not strongly
+reflected in visual or textual attributes, while influence-by
+relationships can span distant artistic periods with limited shared
+multimodal context. In such cases, ComplEx's direct semantic
+proximity in the embedding space captures the relational signal more
+efficiently than the structural paths available in the graph.
+
+PAR remains the weakest method across all four relations, confirming
+the earlier finding that path structure alone is insufficient. Its
+performance is particularly poor on \texttt{isPupilOf} at 0.209~MRR and
+0.030~Hits@1 and on \texttt{isInfluencedBy} at 0.185~MRR and 0.035~Hits@1,
+where the artist-only subgraph provides minimal discriminative paths
+without the multimodal attributes carried by artwork and attribute
+entities. The variation in the PAMR-to-ComplEx gap across relations
+aligns with the design goal of multimodal path reasoning: the approach
+is most beneficial when the relation connects entities with rich shared
+visual or textual context, and least beneficial when the relation
+encodes abstract or infrequent associations where direct embedding
+proximity suffices.
+
+\begin{credits}
+  \subsubsection{\ackname} A bold run-in heading in small font size at the end of the paper is
+  used for general acknowledgments, for example: This study was funded
+  by X (grant number Y).
+
+  \subsubsection{\discintname}
+  It is now necessary to declare any competing interests or to specifically
+  state that the authors have no competing interests. Please place the
+  statement with a bold run-in heading in small font size beneath the
+  (optional) acknowledgments\footnote{If EquinOCS, our proceedings submission
+  system, is used, then the disclaimer can be provided directly in the system.},
+  for example: The authors have no competing interests to declare that are
+  relevant to the content of this article. Or: Author A has received research
+  grants from Company W. Author B has received a speaker honorarium from
+  Company X and owns stock in Company Y. Author C is a member of committee Z.
+\end{credits}
+%
+% ---- Bibliography ----
+%
+% BibTeX users should specify bibliography style 'splncs04'.
+% References will then be sorted and formatted in the correct style.
+%
+\bibliographystyle{splncs04}
+\bibliography{refs}
+
+% \begin{thebibliography}{8}
+% \bibitem{ref_article1}
+% Author, F.: Article title. Journal \textbf{2}(5), 99--110 (2016)
+
+% \bibitem{ref_lncs1}
+% Author, F., Author, S.: Title of a proceedings paper. In: Editor,
+% F., Editor, S. (eds.) CONFERENCE 2016, LNCS, vol. 9999, pp. 1--13.
+% Springer, Heidelberg (2016). \doi{10.10007/1234567890}
+
+% \bibitem{ref_book1}
+% Author, F., Author, S., Author, T.: Book title. 2nd edn. Publisher,
+% Location (1999)
+
+% \bibitem{ref_proc1}
+% Author, A.-B.: Contribution title. In: 9th International Proceedings
+% on Proceedings, pp. 1--2. Publisher, Location (2010)
+
+% \bibitem{ref_url1}
+% LNCS Homepage, \url{http://www.springer.com/lncs}, last accessed 2023/10/25
+% \end{thebibliography}
+\end{document}

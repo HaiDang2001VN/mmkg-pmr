@@ -1,0 +1,34 @@
+# Smoke test / benchmark config for prepare.py
+
+dataset: wikiart_mkg_v2
+data_path: ../data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2/smoke/
+
+negatives_per_query:
+  train: 1
+  val: 5
+  test: 5
+
+exclude_relations_eval:
+  - isRelatedToArtwork
+  - isRelatedToArtist
+
+inverse_relation_pairs:
+  isInfluencedBy: isInfluencedOn
+  isPupilOf: isTeacherOf
+symmetric_relations: []
+
+artist2artist_relations:
+  - isInfluencedBy
+  - isInfluencedOn
+  - isPupilOf
+  - isTeacherOf
+
+use_per_relation_candidates: true
+
+# Benchmark settings — change sampling_method to compare
+sampling_method: rejection
+sample_fraction: 0.01
+
+seed: 42

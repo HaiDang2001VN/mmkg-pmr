@@ -34,10 +34,11 @@ dependencies = [
 ]
 
 [project.scripts]
-vlkge-train = "vlkge.scripts.train:main"
+pmr-train = "pmr.scripts.train_embedding:main"
+pmr-train-pamr = "pmr.scripts.train_pamr:main"
 
 [tool.setuptools.packages.find]
-include = ["vlkge", "vlkge.*"]
+include = ["pmr", "pmr.*"]
 
 [tool.setuptools.package-data]
-vlkge = ["configs/**/*.yaml", "data/**/*"]
+pmr = ["configs/**/*.yaml", "data/**/*"]

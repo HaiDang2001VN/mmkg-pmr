@@ -1,0 +1,9 @@
+# Smoke eval config — references smoke prepare output
+# Usage:
+#   python -m pmr.scripts.evaluate --config configs/eval/smoke_eval.yaml
+
+prepare_config: configs/eval/smoke_neg_sampling.yaml
+
+top_k: [1, 3, 5, 10]
+
+seed: 42

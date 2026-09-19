@@ -1,0 +1,48 @@
+# Negative-sampling-based evaluation protocol — prepare config
+# Generates positive-negative query CSVs for WikiArt-MKG-v2.
+#
+# Usage:
+#   python -m pmr.scripts.prepare --config configs/eval/wikiart_mkg_v2_neg_sampling.yaml
+
+dataset: wikiart_mkg_v2
+data_path: /Users/haidang/Library/CloudStorage/GoogleDrive-danghailamhuynh@gmail.com/My Drive/Study/HCMUS/Grad/Doctor/Thesis/Code/pmr/data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+
+# Where to write prepared query CSVs
+output_dir: /Users/haidang/Library/CloudStorage/GoogleDrive-danghailamhuynh@gmail.com/My Drive/Study/HCMUS/Grad/Doctor/Thesis/Code/pmr/checkpoints/preproc/wikiart_mkg_v2/
+
+# Number of negative samples to draw per (h, r, ?) query, per split
+negatives_per_query:
+  train: 1
+  val: 10
+  test: 10
+
+# Dataset constraints (mirrors training config)
+exclude_relations_eval:
+  - isRelatedToArtwork
+  - isRelatedToArtist
+
+inverse_relation_pairs:
+  isInfluencedBy: isInfluencedOn
+  isPupilOf: isTeacherOf
+symmetric_relations: []
+
+artist2artist_relations:
+  - isInfluencedBy
+  - isInfluencedOn
+  - isPupilOf
+  - isTeacherOf
+
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf
+
+use_per_relation_candidates: true
+
+sampling_method: rejection
+sample_fraction: 1.0
+
+seed: 42

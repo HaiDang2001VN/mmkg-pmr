@@ -1,0 +1,518 @@
+\vspace{-1em}
+\section{\uppercase{Method}}
+\label{sec:method}
+\vspace{-1em}
+\subsection{Overview}
+\vspace{-1em}
+
+A \textbf{knowledge graph} (KG) is a directed multi-relational graph
+$\mathcal{G} = (\mathcal{V}, \mathcal{E}, \mathcal{R})$ with
+$\mathcal{V}$ a set of entities, $\mathcal{R}$ a set of relation types,
+and $\mathcal{E} \subseteq \mathcal{V} \times \mathcal{R} \times \mathcal{V}$
+a set of labelled edges.  Each edge $(\mathbf{s}, r, \mathbf{o}) \in \mathcal{E}$
+denotes that subject entity $\mathbf{s}$ is connected to object entity $\mathbf{o}$
+via relation $r$.  Entities may carry multimodal attributes: visual features
+$\mathbf{x}^{\text{vis}}_i \in \mathbb{R}^{D_v}$, such as image embeddings of artworks,
+textual features $\mathbf{x}^{\text{txt}}_i \in \mathbb{R}^{D_t}$, such as text
+embeddings of entity names, and structural features learned via a KGE model.
+
+Given a query $(\mathbf{s}, r, ?)$, the goal of \textbf{path-aware reasoning} is to
+rank a set of candidate objects $\mathcal{O}_{\text{cand}} = \{\mathbf{o}_1, \ldots, \mathbf{o}_K\}$
+by scoring the paths that connect $\mathbf{s}$ to each $\mathbf{o}_k$ within $\mathcal{G}$.
+Formally, let $\mathcal{P}(\mathbf{s}, \mathbf{o})$ denote the set of paths from
+$\mathbf{s}$ to $\mathbf{o}$, where a path
+$p = (\mathbf{v}_0, r_1, \mathbf{v}_1, r_2, \mathbf{v}_2, \ldots, r_\ell, \mathbf{v}_\ell)$
+is a sequence of alternating entities and relations with $\mathbf{v}_0 = \mathbf{s}$ and
+$\mathbf{v}_\ell = \mathbf{o}$.  The number of edges $\ell$ is the path length (in hops).
+A scoring function $f: \mathcal{P} \times \mathcal{R} \to \mathbb{R}$ assigns a real-valued
+score $s = f(p, r)$ to each path given the query relation $r$.  The object with the
+highest scoring path is selected as the answer.
+
+We propose the \textbf{Path-Aware Multimodal Reasoning (PAMR)} framework, a Transformer-based
+architecture that encodes paths as interleaved sequences of entity and relation tokens,
+each embedded via a frozen vision-language knowledge graph embedding (VL-KGE) model.
+PAMR introduces two key innovations: (i)~a paired sampling scheme that, unlike
+conventional uniform negative sampling, yields batches with exactly balanced positive
+and negative examples per query, and (ii)~a token representation that
+concatenates real and imaginary relation embeddings while using only the fused real entity
+representation.  These design choices enable the Transformer to learn discriminative path
+representations from frozen KGE token embeddings without modifying the underlying knowledge graph
+representations.
+
+\vspace{-1em}
+\subsection{Embedding Module}
+\vspace{-1em}
+\label{sec:embedding-module}
+
+To supply pre-encoded relational structure without incurring additional training cost, we
+use a frozen pre-trained \textbf{knowledge graph embedding (KGE)} model.  A KGE model
+learns entity embeddings
+$\mathbf{E} \in \mathbb{R}^{|\mathcal{V}| \times D}$ and relation embeddings
+$\mathbf{R} \in \mathbb{R}^{|\mathcal{R}| \times D}$ such that a scoring function
+$\phi: \mathcal{V} \times \mathcal{R} \times \mathcal{V} \to \mathbb{R}$
+assigns higher values to true triples than to false ones.  We consider four standard
+KGE architectures (ComplEx~\cite{trouillon2016complex}, TransE~\cite{bordes2013translating},
+DistMult~\cite{yang2015embedding}, RotatE~\cite{sun2019rotate}), each provisioning a
+$D$-dimensional real vector per entity and relation.
+
+Entities in a multimodal KG possess heterogeneous modalities.  Let
+$\boldsymbol{\Phi}^{\text{st}} \in \mathbb{R}^{|\mathcal{V}| \times D}$ be the trainable
+structural embedding table, $\boldsymbol{\Phi}^{\text{vis}}: \mathcal{V} \to \mathbb{R}^{D}$
+the frozen visual projector, and $\boldsymbol{\Phi}^{\text{txt}}: \mathcal{V} \to \mathbb{R}^{D}$
+the frozen textual projector.  The fused entity representation of entity $i$ is:
+\begin{equation}
+\mathbf{e}^{\text{fused}}_i = \frac{1}{|\mathcal{M}(i)|}\sum_{m \in \mathcal{M}(i)} \tilde{\boldsymbol{\Phi}}_m(i)
+\label{eq:fused-emb}
+\end{equation}
+Here $\mathcal{M}(i) \subseteq \{\text{st}, \text{vis}, \text{txt}\}$ denotes the set of modalities
+available for entity $i$, and $\tilde{\boldsymbol{\Phi}}_m$ denotes the corresponding
+projector after optional linear layers for aligning dimensions.  This per-entity averaging
+naturally handles modality asymmetry, where different entity types carry different modality
+combinations without requiring a fixed global fusion scheme.
+
+Among the four KGE architectures, ComplEx~\cite{trouillon2016complex} and
+RotatE~\cite{sun2019rotate} employ complex-valued embeddings that decompose each entity
+and relation into real and imaginary components:
+$\mathbf{e} = [\mathbf{e}_{\text{re}}; \mathbf{e}_{\text{im}}] \in \mathbb{R}^{2D}$,
+$\mathbf{r} = [\mathbf{r}_{\text{re}}; \mathbf{r}_{\text{im}}] \in \mathbb{R}^{2D}$.
+TransE and DistMult are purely real-valued models operating in $\mathbb{R}^D$.  The
+scoring functions are: ComplEx, $\operatorname{Re}\langle \mathbf{s}, \mathbf{r}, \overline{\mathbf{o}} \rangle$, which computes an elementwise triple dot product across real and imaginary components, TransE,
+$m - \|\mathbf{s} + \mathbf{r} - \mathbf{o}\|_1$, DistMult, $\sum_i \mathbf{s}_i \mathbf{r}_i \mathbf{o}_i$,
+and RotatE, $m - \|\mathbf{s} \circ \mathbf{r} - \mathbf{o}\|$ with $\mathbf{r}_i = \cos\theta_i + \jmath\sin\theta_i$.
+
+Complex-valued KGE models output embeddings of twice the real-valued dimension.
+To decide whether this extra capacity carries useful signal for the Transformer, we
+examine the real and imaginary components independently.
+
+\vspace{-1em}
+\paragraph{Real and imaginary parts in PAMR.}
+The imaginary entity component in ComplEx and RotatE is constructed via a gated linear projection
+$\mathbf{e}_{\text{im}} = \tanh(g) \cdot \mathbf{W}_{\text{vi}}(\mathbf{e}_{\text{re}})$.
+Here $g \in \mathbb{R}$ is a learned scalar gate and $\mathbf{W}_{\text{vi}} \in \mathbb{R}^{D \times D}$
+is a trainable projection.  This construction suffers from an initialization deadlock:
+$\mathbf{W}_{\text{vi}}$ is initialised to zero and $g$ to zero, so each parameter's gradient
+depends on the other being nonzero, so neither escapes during training.  Consequently, for
+entities that rely on this projection, such as entities that lack their own textual embedding table,
+the imaginary part remains at its near-zero initialized value.  Concatenating near-zero
+vectors would inject noise into the Transformer input.  PAMR therefore uses \textbf{only the
+fused real part} for entity tokens: $\mathbf{e}^{\text{raw}}_i = \mathbf{e}^{\text{fused}}_{i,\text{re}}$.
+
+For relations, however, the imaginary embeddings are learned from separate, fully-trained
+embedding tables $\mathbf{R}_{\text{im}} \in \mathbb{R}^{|\mathcal{R}| \times D}$ for ComplEx
+or via a mapping of angles to complex values $[\cos\boldsymbol{\theta}; \sin\boldsymbol{\theta}]$ for RotatE,
+neither of which suffers from the gating deadlock.  PAMR therefore concatenates both components
+for relation tokens:
+\begin{equation}
+\mathbf{r}^{\text{raw}} = \begin{cases}
+    [\,\mathbf{r}_{\text{re}}; \mathbf{r}_{\text{im}}\,] \in \mathbb{R}^{2D}
+        & \text{(ComplEx, RotatE)} \\
+    \mathbf{r}_{\text{re}} \in \mathbb{R}^{D}
+        & \text{(TransE, DistMult)}
+\end{cases}
+\label{eq:rel-raw}
+\end{equation}
+
+\vspace{-1em}
+\paragraph{Dimension automatic detection.}
+Let $d_{\mathcal{V}}$ and $d_{\mathcal{R}}$ denote the effective dimensionality of entity and
+relation representations, derived from the KGE dimension $D$:
+\begin{equation}
+d_{\mathcal{V}} = D,\qquad
+d_{\mathcal{R}} = \begin{cases}2D & \text{(complex-valued or imag. relation embeddings)} \\ D & \text{(real-valued)}\end{cases}
+\label{eq:dim}
+\end{equation}
+The Transformer hidden dimension is $d_{\text{model}} = \max(d_{\mathcal{V}}, d_{\mathcal{R}})$.
+Two learnable linear projections align token dimensions:
+\begin{equation}
+\operatorname{Proj}_{\mathcal{V}}: \mathbb{R}^{d_{\mathcal{V}}} \to \mathbb{R}^{d_{\text{model}}},\qquad
+\operatorname{Proj}_{\mathcal{R}}: \mathbb{R}^{d_{\mathcal{R}}} \to \mathbb{R}^{d_{\text{model}}}
+\label{eq:projections}
+\end{equation}
+Both are learned during PAMR training while the KGE model remains frozen;
+$\operatorname{Proj}_{\mathcal{V}}$ reduces to the identity when $d_{\mathcal{V}} = d_{\text{model}}$.
+
+\vspace{-1em}
+\subsection{Path Extraction}
+\vspace{-1em}
+\label{sec:path-extraction}
+
+To provide the Transformer with explicit, interpretable connectivity evidence rather than
+relying solely on the implicit proximity captured by KGE embeddings, we extract shortest
+paths between query pairs via \textbf{bidirectional breadth-first search} (BFS).  The
+core idea is to launch two
+symmetric search waves, one forward from $\mathbf{s}$ and one backward from $\mathbf{o}$, and
+expand them layer by layer until their frontiers intersect.  At each depth $k$, let
+$\mathcal{F}_s^{k}$ and $\mathcal{F}_o^{k}$ denote the forward and backward frontier vertex
+sets.  The frontiers expand according to:
+\begin{align}
+\mathcal{F}_s^{k} &= \{\, \mathbf{v} \in \mathcal{V} \mid \exists\, \mathbf{w} \in \mathcal{F}_s^{k-1},\;
+   (\mathbf{w}, r, \mathbf{v}) \in \mathcal{E} \,\} \label{eq:fw-frontier} \\
+\mathcal{F}_o^{k} &= \{\, \mathbf{v} \in \mathcal{V} \mid \exists\, \mathbf{w} \in \mathcal{F}_o^{k-1},\;
+   (\mathbf{v}, r, \mathbf{w}) \in \mathcal{E} \,\} \label{eq:bw-frontier}
+\end{align}
+When the intersection $\mathcal{I}_k = \mathcal{F}_s^{k} \cap \mathcal{F}_o^{k}$ is non-empty for
+the first time, the meeting vertex $m$ yields a path $p = \text{pred}_s(m) \parallel \text{rev}(\text{pred}_o(m))$
+that is guaranteed to be minimal in hop count by construction.
+
+
+\vspace{-1em}
+\paragraph{Decaying fanout heuristic.}
+To remain scalable on large, dense knowledge graphs, we employ a \emph{decaying fanout}
+mechanism~\cite{nam2025sequential} that prunes the search space by limiting the number of
+neighbors expanded at each depth.  With a base fanout $F$ and decay rate $\lambda \in (0, 1]$,
+the effective fanout at depth $k$ from each side is $\lfloor F \cdot \lambda^{k} \rfloor$.
+For each node $\mathbf{u}$ at depth $k$, only the $\lfloor F \cdot \lambda^{k} \rfloor$
+highest-frequency incident edges are expanded, favouring well-connected paths.  The full
+algorithm is detailed in Algorithm~\ref{alg:bfs}.
+
+\begin{algorithm}[htbp]
+\caption{Bidirectional BFS with Decaying Fanout}
+\label{alg:bfs}
+\KwIn{Subject $s$, candidate object $\hat{o}$, graph $\mathcal{G}$, 
+      base fanout $F$, decay rate $\lambda \in (0,1]$, max hops $H$}
+\KwOut{Shortest path from $s$ to $\hat{o}$ within $H$ hops, or $\emptyset$ if unreachable}
+
+$\mathcal{Q}_s \gets \{s\}$; $\mathcal{Q}_o \gets \{\hat{o}\}$\;
+$\mathtt{pred}_s[s] \gets \bot$; $\mathtt{pred}_o[\hat{o}] \gets \bot$\;
+$\mathtt{visited}_s \gets \{s\}$; $\mathtt{visited}_o \gets \{\hat{o}\}$\;
+$\mathtt{depth}_s[s] \gets 0$; $\mathtt{depth}_o[\hat{o}] \gets 0$\;
+\While{$\mathcal{Q}_s \neq \emptyset$ \textbf{and} $\mathcal{Q}_o \neq \emptyset$}{
+    \uIf{$|\mathcal{Q}_s| \leq |\mathcal{Q}_o|$}{
+        $m \gets$ \texttt{expandFrontier}($\mathcal{Q}_s$, $\mathtt{visited}_s$, $\mathtt{visited}_o$, 
+            $\mathtt{pred}_s$, $\mathtt{depth}_s$, $F$, $\lambda$, \textit{forward})\;
+    }
+    \Else{
+        $m \gets$ \texttt{expandFrontier}($\mathcal{Q}_o$, $\mathtt{visited}_o$, $\mathtt{visited}_s$, 
+            $\mathtt{pred}_o$, $\mathtt{depth}_o$, $F$, $\lambda$, \textit{backward})\;
+    }
+    \If{$m \neq \bot$}{
+        \Return $\texttt{reconstructPath}(m, \mathtt{pred}_s, \mathtt{pred}_o)$\;
+    }
+    \If{$\mathtt{depth}_s \geq H$ \textbf{or} $\mathtt{depth}_o \geq H$}{
+        \Return $\emptyset$\;
+    }
+}
+\Return $\emptyset$\;
+
+\SetKwProg{Fn}{function}{:}{}
+\SetKwFunction{FExpand}{expandFrontier}
+\Fn{\FExpand{$\mathcal{Q}$, $\mathtt{visitedSelf}$, $\mathtt{visitedOpp}$, 
+    $\mathtt{pred}$, $\mathtt{depth}$, $F$, $\lambda$, $\mathit{direction}$}}{
+    \ForEach{$\mathbf{u}$ in current depth-level of $\mathcal{Q}$}{
+        $k \gets \mathtt{depth}[\mathbf{u}]$\;
+        $\mathit{fanout} \gets \lfloor F \cdot \lambda^{k} \rfloor$\;
+        $\mathit{edges} \gets$ top $\mathit{fanout}$ most frequent incident edges to $\mathbf{u}$ 
+                  (adjusted for $\mathit{direction}$)\;
+        \ForEach{$(\mathbf{w}, r, \mathbf{v})$ in $\mathit{edges}$}{
+            \If{$\mathbf{v} \notin \mathtt{visitedSelf}$}{
+                $\mathtt{visitedSelf} \gets \mathtt{visitedSelf} \cup \{\mathbf{v}\}$\;
+                $\mathcal{Q}.\text{enqueue}(\mathbf{v})$\;
+                $\mathtt{pred}[\mathbf{v}] \gets (\mathbf{u}, r, \mathit{direction})$\;
+                $\mathtt{depth}[\mathbf{v}] \gets k + 1$\;
+            }
+            \If{$\mathbf{v} \in \mathtt{visitedOpp}$}{
+                \Return $\mathbf{v}$\;
+            }
+        }
+    }
+    \Return $\bot$\;
+}
+\end{algorithm}
+
+\vspace{-1em}
+\paragraph{Complexity analysis.}
+The search with decaying fanout visits at most $\lfloor F \cdot \lambda^{k} \rfloor$ neighbors
+per node at depth $k$.  The total number of nodes visited by one search wave is bounded by
+the geometric series $\sum_{k=0}^{K/2} F \cdot \lambda^{k} < \frac{F}{1 - \lambda}$,
+for $\lambda < 1$, yielding space complexity $O\bigl(\frac{F}{1-\lambda}\bigr)$ and
+time complexity $O\bigl(\bar{d} \cdot \frac{F}{1-\lambda}\bigr)$, with $\bar{d}$ denoting the
+average degree and $K$ the shortest path length.  This is exponentially more efficient than
+the unconstrained bidirectional BFS complexity of $O(\bar{d}^{\,K/2 + 1})$, at the cost of
+relaxing the optimality guarantee, meaning a path may be missed if pruned by the fanout heuristic.
+
+\vspace{-1em}
+\paragraph{PAMR vs.\ PAR graph configurations.}
+We define two graph configurations that produce qualitatively different path spaces:
+\begin{description}[nosep]
+    \item[$\mathcal{G}_{\text{full}}$ (PAMR).]  The complete graph comprising all entity types.
+    Paths may bridge across artworks, artists, and attributes, exploiting cross-type
+    relationships for reasoning.
+    \item[$\mathcal{G}_{\text{artist}}$ (PAR).]  The artist-only subgraph restricted to
+    entities of type~2 and edges where both endpoints are artists.  Paths stay within the
+    artist community and leverage only relations between artists.
+\end{description}
+Paths with $\ell \leq 0$ are excluded from training and evaluation as they carry no
+structural reasoning signal, which include unreachable pairs and trivial self loops.
+
+\vspace{-1em}
+\subsection{PAMR Architecture}
+\vspace{-1em}
+\label{sec:pamr-architecture}
+
+\vspace{-1em}
+\subsubsection{Token Interleaving}
+\vspace{-1em}
+\label{sec:token-interleaving}
+
+To encode path structure as a flat sequence, entity and relation tokens are interleaved
+with a classification token and the query relation prepended.
+Let $\mathbf{e}^{\text{raw}}_i \in \mathbb{R}^{d_{\mathcal{V}}}$ be the raw KGE embedding
+of entity $i$ and $\mathbf{r}^{\text{raw}}_j \in \mathbb{R}^{d_{\mathcal{R}}}$ the raw
+relation embedding of relation $j$.  Projected token embeddings are:
+\begin{equation}
+\mathbf{v}_i = \operatorname{Proj}_{\mathcal{V}}(\mathbf{e}^{\text{raw}}_i),\qquad
+\mathbf{r}_j = \operatorname{Proj}_{\mathcal{R}}(\mathbf{r}^{\text{raw}}_j)
+\label{eq:token-proj}
+\end{equation}
+both lying in $\mathbb{R}^{d_{\text{model}}}$.
+
+A path with $\ell$ hops comprises $\ell+1$ entity tokens and $\ell$ edge tokens.
+These are interleaved into a token sequence of length $L = 2\ell + 1$:
+\begin{equation}
+\mathbf{T} = \bigl[\mathbf{c};\; \mathbf{r}_q;\;
+                     \mathbf{v}_{\mathbf{s}};\; \mathbf{r}_{1};\; \mathbf{v}_{2};\; \mathbf{r}_{2};\;
+                     \mathbf{v}_{3};\; \ldots;\; \mathbf{v}_{\mathbf{o}}\bigr]
+\in \mathbb{R}^{L \times d_{\text{model}}}
+\label{eq:token-seq}
+\end{equation}
+Here $\mathbf{c} \in \mathbb{R}^{d_{\text{model}}}$ is a learnable classification token
+at position 0, initialised from $\mathcal{N}(0, 0.02^2)$.  $\mathbf{r}_q$ is the query
+relation representation at position 1, while entity tokens $\mathbf{v}_{\mathbf{s}}, \mathbf{v}_{2}, \ldots, \mathbf{v}_{\mathbf{o}}$
+occupy positions $2 + 2i$ for $i = 0, \ldots, \ell$, and edge tokens $\mathbf{r}_{1}, \ldots, \mathbf{r}_{\ell}$
+occupy positions $3 + 2i$ for $i = 0, \ldots, \ell - 1$.
+
+Entity positions receive additive \textbf{node type embeddings}
+$\boldsymbol{\tau}_i \in \mathbb{R}^{d_{\text{model}}}$ from a learned embedding table
+with one entry per node type plus a padding zero.
+All positions receive \textbf{absolute positional embeddings}
+$\mathbf{p}_i = \operatorname{PE}(i)$ via a learned embedding
+$\operatorname{PE}: \{0, \ldots, L-1\} \to \mathbb{R}^{d_{\text{model}}}$.
+The final token input to the Transformer is:
+\begin{equation}
+\mathbf{T}^{\text{in}}_i = \mathbf{T}_i \;+\; \mathbf{p}_i \;+\;
+    \boldsymbol{\tau}_{\tau(i)} \cdot \mathds{1}_{\mathcal{V}}(i)
+\label{eq:token-in}
+\end{equation}
+Here $\mathds{1}_{\mathcal{V}}(i) = 1$ iff position $i$ is an entity position.
+
+\vspace{-1em}
+\subsubsection{Entity and Relation Representations}
+\vspace{-1em}
+\label{sec:entity-relation-repr}
+
+Entity tokens embed only the fused real part (Eq.~\ref{eq:fused-emb}):
+$\mathbf{e}^{\text{raw}}_i = \mathbf{e}^{\text{fused}}_{i,\text{re}}$.
+Relation tokens concatenate real and imaginary components according to Eq.~\ref{eq:rel-raw}.
+
+\vspace{-1em}
+\subsubsection{Transformer Encoder}
+\vspace{-1em}
+\label{sec:transformer-encoder}
+
+The token sequence is contextualised through a stack of $L_{\text{tr}}$
+Transformer encoder layers~\cite{vaswani2017attention} with $h$ attention heads each:
+\begin{equation}
+\mathbf{H}^{(0)} = \mathbf{T}^{\text{in}},\qquad
+\mathbf{H}^{(l)} = \operatorname{EncLayer}^{(l)}\bigl(\mathbf{H}^{(l-1)},\; \mathbf{M}\bigr)
+\quad (l = 1, \ldots, L_{\text{tr}})
+\label{eq:transformer}
+\end{equation}
+Here $\mathbf{M} \in \{0, 1\}^{L}$ is a padding mask ($\mathbf{M}_i = 1$ indicates an
+invalid position) for paths shorter than the batch maximum $N_{\max}(\mathcal{B})$.
+Each encoder layer applies:
+\begin{align}
+    \tilde{\mathbf{H}} &= \operatorname{LayerNorm}\bigl(
+        \mathbf{H}^{(l-1)} + \operatorname{MHA}(\mathbf{H}^{(l-1)}; \mathbf{M})\bigr)
+        \label{eq:attn}\\
+    \mathbf{H}^{(l)} &= \operatorname{LayerNorm}\bigl(
+        \tilde{\mathbf{H}} + \operatorname{FFN}(\tilde{\mathbf{H}})\bigr)
+        \label{eq:ffn}
+\end{align}
+with $\operatorname{FFN}(\mathbf{x}) = \mathbf{W}^{(2)} \operatorname{GELU}(\mathbf{W}^{(1)} \mathbf{x} + \mathbf{b}^{(1)}) + \mathbf{b}^{(2)}$
+and inner dimension $d_{\text{ff}} = 4 \times d_{\text{model}}$.  GELU~\cite{hendrycks2016gaussian} activation
+and Post-LN layer normalisation are used throughout.
+
+\vspace{-1em}
+\subsubsection{Readout and Scoring}
+\vspace{-1em}
+\label{sec:readout}
+
+To obtain a fixed-dimensional path representation, the contextualised token
+sequence is aggregated via one of two readout strategies from
+$\mathbf{H}^{(L_{\text{tr}})} \in \mathbb{R}^{L \times d_{\text{model}}}$:
+
+\begin{description}[nosep]
+    \item[CLS.] $\mathbf{z} = \mathbf{H}^{(L_{\text{tr}})}[0, :] \in \mathbb{R}^{d_{\text{model}}}$, the classification token at position 0.
+    \item[Mean.] $\mathbf{z} = \frac{\sum_{i=0}^{L-1} \mathbf{H}^{(L_{\text{tr}})}[i, :] \cdot (1 - \mathbf{M}[i])}{\sum_i (1 - \mathbf{M}[i])}$, averaging over valid tokens.
+\end{description}
+
+A two-layer MLP maps $\mathbf{z}$ to a scalar score $s \in \mathbb{R}$:
+\begin{equation}
+    \mathbf{h} = \operatorname{GELU}\bigl(\mathbf{W}_1 \mathbf{z} + \mathbf{b}_1\bigr),
+    \qquad
+    s = \mathbf{w}_2^{\top} \mathbf{h} + b_2
+\label{eq:readout}
+\end{equation}
+with dropout $p = 0.1$ applied after GELU.  All linear layers use Xavier
+uniform initialisation and zero bias.
+
+\vspace{-1em}
+\subsection{Training}
+\vspace{-1em}
+\label{sec:training}
+
+To train a path scorer with stable supervision, each query must contribute equal gradient
+signal regardless of its number of negative samples.  We construct a paired sampling
+dataset that guarantees both balance and fairness.
+
+\vspace{-1em}
+\subsubsection{Paired Sampling}
+\vspace{-1em}
+\label{sec:paired-sampling}
+
+For each query $q$, the query generation process produces one \textit{positive} path
+$p^+_q$, which connects $\mathbf{s}$ to the true object $\mathbf{o}$, and $K$ \textit{negative}
+paths $\mathcal{S}^-_q = \{p^-_{q,1}, \ldots, p^-_{q,K}\}$, which connect $\mathbf{s}$ to
+sampled false objects.  We construct a paired dataset $\mathcal{D}_{\text{pair}}$
+that iterates over every negative exactly once per epoch, each paired with its query's
+unique positive.  The construction procedure is detailed in Algorithm~\ref{alg:paired}.
+
+\begin{algorithm}[htbp]
+\caption{Paired-Sampling Dataset Construction}
+\label{alg:paired}
+\KwIn{Path samples grouped by query identifier $q$: $\mathcal{S}_q^+ = \{p^+_q\}$,
+      $\mathcal{S}_q^- = \{p^-_{q,1}, \ldots, p^-_{q,K}\}$}
+\KwOut{Paired index $\mathcal{I}$; $|\mathcal{I}| = \sum_q |\mathcal{S}_q^-|$}
+
+$\mathcal{I} \gets \emptyset$\;
+\ForEach{query $q$}{
+    \ForEach{$p^- \in \mathcal{S}_q^-$}{
+        $\mathcal{I}.\text{append}(\,(p^+_q,\; p^-)\,)$\;
+    }
+}
+\Return $\mathcal{I}$\;
+\end{algorithm}
+
+Collation interleaves positive and negative pairs into flat sequences:
+$\operatorname{batch}(B) = [p^+_0, p^-_0, p^+_1, p^-_1, \ldots, p^+_{B-1}, p^-_{B-1}]$.
+Here $B$ is the query batch size.  Each training batch contains exactly $B$ positive and
+$B$ negative samples, producing a guaranteed 50/50 composition regardless of the underlying
+positive to negative ratio.  Variable length paths are zero-padded to the batch maximum
+$N_{\max}(\mathcal{B}) = \max_{p \in \mathcal{B}} (\ell_p + 1)$ entity tokens, with
+padding masks $\mathbf{M}$ as defined in Section~\ref{sec:token-interleaving}.
+
+\vspace{-1em}
+\subsubsection{Loss Functions}
+\vspace{-1em}
+\label{sec:loss-functions}
+
+The architecture supports three loss modes to accommodate different dataset
+characteristics.  Let $\mathcal{B} = \{(s_1, y_1), \ldots, (s_{2B}, y_{2B})\}$
+denote a training batch with $y_i \in \{0, 1\}$.
+
+\vspace{-1em}
+\paragraph{Binary Cross Entropy.}  A pointwise loss treating each path independently:
+\begin{equation}
+\mathcal{L}_{\text{BCE}} = -\frac{1}{2B} \sum_{(s_i, y_i) \in \mathcal{B}}
+    \bigl[\, y_i \log \sigma(s_i) + (1 - y_i) \log(1 - \sigma(s_i)) \,\bigr]
+\label{eq:loss-bce}
+\end{equation}
+Here $\sigma(x) = 1/(1 + e^{-x})$ denotes the sigmoid function.  With perfectly balanced batches,
+the loss converges to $\ln 2 \approx 0.693$ when the model predicts $\sigma(s_i) = 0.5$
+for all inputs, which is a degenerate state yielding $\mathrm{MRR}=1.0$ artifactually.
+
+\vspace{-1em}
+\paragraph{Link Prediction (softplus).}  The standard KGE loss~\cite{trouillon2016complex}:
+\begin{equation}
+\mathcal{L}_{\text{LP}} = \frac{1}{2B} \sum_{(s_i, y_i) \in \mathcal{B}}
+    \log\bigl(1 + \exp(-\hat{y}_i \cdot s_i)\bigr),\quad
+    \hat{y}_i = 2y_i - 1 \in \{-1, +1\}
+\label{eq:loss-lp}
+\end{equation}
+
+\vspace{-1em}
+\paragraph{Ranking (margin).}  In contrast to the pointwise losses above, this loss
+groups samples by query identifier and enforces a margin
+between the positive score and all negative scores for that query:
+\begin{equation}
+\mathcal{L}_{\text{rank}} = \frac{1}{|\mathcal{Q}_{\mathcal{B}}|} \sum_{q \in \mathcal{Q}_{\mathcal{B}}}\;
+    \frac{1}{|S_q^+||S_q^-|} \sum_{s^+ \in S_q^+} \sum_{s^- \in S_q^-}
+    \max\bigl(0,\, m - s^+ + s^-\bigr)
+\label{eq:loss-rank}
+\end{equation}
+Here $\mathcal{Q}_{\mathcal{B}}$ denotes the set of unique query identifiers in $\mathcal{B}$, and
+$m = 1.0$ is the margin.  This loss directly optimises the ranking objective and prevents
+score collapse.
+
+\vspace{-1em}
+\subsubsection{Optimization}
+\vspace{-1em}
+\label{sec:optimization}
+
+PAMR is trained with AdamW~\cite{loshchilov2019decoupled}:
+$\eta = 0.001$, $\lambda = 0.01$, $\beta_1 = 0.9$, $\beta_2 = 0.999$.
+Only PAMR parameters are updated, while the frozen VL-KGE model remains untouched.
+
+\vspace{-1em}
+\subsection{Evaluation}
+\vspace{-1em}
+
+For each query $(\mathbf{s}, r, ?)$ the model assigns a scalar score to every
+candidate object and ranks them in descending order.  Let $r_q$ denote the
+position of the true object in this ranking for query $q$, out of
+$|\mathcal{Q}|$ total queries.  Standard ranking metrics are computed:
+\begin{equation}
+    \mathrm{MRR} = \frac{1}{|\mathcal{Q}|}\sum_{q} \frac{1}{r_q},
+    \qquad
+    \mathrm{Hits@}K = \frac{1}{|\mathcal{Q}|}\sum_{q} \mathds{1}[r_q \leq K].
+\end{equation}
+
+\vspace{-1em}
+\paragraph{Per-relation analysis.}
+To assess performance independently for each relation type, all metrics are
+disaggregated by $r \in \mathcal{R}$.  Let $\mathcal{Q}_r = \{q : \operatorname{rel}(q) = r\}$
+be the subset of queries whose relation is $r$.  Then
+$\mathrm{MRR}_r = \frac{1}{|\mathcal{Q}_r|}\sum_{q \in \mathcal{Q}_r} 1/r_q$
+and $\mathrm{Hits@}K_r = \frac{1}{|\mathcal{Q}_r|}\sum_{q \in \mathcal{Q}_r} \mathds{1}[r_q \leq K]$.
+
+\vspace{-1em}
+\subsection{Baselines}
+\vspace{-1em}
+\label{sec:baselines}
+
+\vspace{-1em}
+\paragraph{VL-KGE models.}
+To establish a performance floor and isolate the marginal contribution of explicit path
+reasoning, we compare PAMR against four pre-trained KGE baselines using the same frozen
+embeddings.  These models score candidate triples
+$(\mathbf{s}, r, \mathbf{o})$ via learned embeddings without path reasoning.
+All models share identical training configuration: 20 epochs, $\eta = 0.1$, batch size
+$4096$, $K = 1$ negative per positive triple, and multimodal fusion (average of structural,
+visual, and textual features).
+
+\begin{table}[t]
+\centering
+\caption{Baseline VL-KGE models.  $D = 768$. Parameter counts exclude frozen feature extractors.}
+\label{tab:kge-models}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Model} & \textbf{Scoring $\phi(\mathbf{s}, r, \mathbf{o})$} & \textbf{Params} \\
+\midrule
+ComplEx & $\operatorname{Re}\langle \mathbf{s}, \mathbf{r}, \overline{\mathbf{o}} \rangle$
+        & 350.8M \\
+TransE  & $-\|\mathbf{s} + \mathbf{r} - \mathbf{o}\|_1$
+        & 172.1M \\
+DistMult & $\sum_i \mathbf{s}_i \mathbf{r}_i \mathbf{o}_i$
+        & 172.1M \\
+RotatE  & $-\|\mathbf{s} \circ \mathbf{r} - \mathbf{o}\|$
+        & 350.8M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All models are evaluated on the same held-out test set using identical evaluation
+metrics, MRR and Hits@$K$, enabling fair comparison with PAMR.  The KGE baselines
+represent an upper bound without relying on path structure: they leverage the full
+knowledge graph structure through learned embeddings but cannot exploit explicit
+path topology between query pairs.  PAMR must learn to attend over the paths to
+match or exceed this signal.

@@ -1,0 +1,60 @@
+# PAMR — Path-Aware Multimodal Reasoning (Production)
+#
+# Transformer over interleaved entity/edge paths with frozen VLKGE embeddings.
+# d_model auto-detected from VLKGE (ComplEx → 1536).
+#
+# Usage:
+#   python -m pmr.scripts.train_pamr --config configs/pr/pamr.yaml
+
+# ── Architecture ────────────────────────────────────────────────────────────
+num_layers: 8
+num_heads: 8              # 1536/8 = 192 per head
+dim_feedforward: 2048
+dropout: 0.1
+causal: false
+readout: average
+use_node_types: true
+
+# ── VLKGE (frozen embedding source) ────────────────────────────────────────
+vlkge_config: ../wikiart_mkg_v2/complex_clip.yaml
+vlkge_checkpoint: ../checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2.pt
+# Scope of facts the VLKGE checkpoint was trained on. Must match the
+# checkpoint's recorded embedding_scope. Main protocol: train-scope
+# checkpoints pair with val evaluation, train_val checkpoints pair with test.
+vlkge_scope: train
+
+# ── Path data (full production) ────────────────────────────────────────────
+paths_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/pamr/
+queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/
+max_hops: 5
+max_tokens: 13
+
+# ── Training ───────────────────────────────────────────────────────────────
+# Objective: grouped_pairwise | listwise_softmax | binary_candidate
+# (probe-level binary / link_prediction / reconstruction remain available).
+loss_mode: grouped_pairwise
+# Minimum candidate coverage required to accept a best-checkpoint (0 = off).
+min_eval_coverage: 0.0
+batch_size: 8
+lr: 0.01
+epochs: 50
+patience: 0
+eval_every: 1
+eval_max_batches: 999999  # full val/test
+
+# ── Relation filter (eval-only: train on all, eval on 4 artist relations)
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf
+
+# ── Output ─────────────────────────────────────────────────────────────────
+log_metrics: true
+save_checkpoint: true
+
+weight_decay: 0.01
+
+seed: 42

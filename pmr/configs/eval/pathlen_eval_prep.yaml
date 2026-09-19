@@ -1,0 +1,7 @@
+# Shared prepare config for path-length baseline evaluation.
+# Provides queries path (full dataset).  Scores come from scores_dir
+# in the eval configs that reference this file.
+output_dir: /workspace/checkpoints/preproc/wikiart_mkg_v2/full/
+dataset: wikiart_mkg_v2
+data_path: /workspace/data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+exclude_relations_eval: ['isRelatedToArtwork', 'isRelatedToArtist']
