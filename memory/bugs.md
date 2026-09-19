@@ -62,29 +62,35 @@ Code and configuration work is complete; only artifact regeneration/retraining (
 - **F14 — forward-BFS reuse + drain fix.** Was: each of a query's ~11 probes recomputed the identical forward BFS and the loop stopped when either frontier drained (reachable tails could be mislabeled `hops=-1`). Now: forward BFS from the head runs once per query and is reused by all its probes; backward BFS runs per probe with meet detection against the forward tree and an explicit depth bound; probes whose own edge is present (in practice the positive) fall back to a fully masked per-probe bidirectional BFS. Verified end-to-end on a synthetic graph (mask on/off, deny, self, reverse orientation). *(Resolved in this wave.)*
 - **F13 — thread RAM documented** — each worker builds its own full-split adjacency; the paths config now states the ≈ num_threads × graph-size budget. *(Documented in this wave; per-machine tuning remains with the user.)*
 
+### Inspection wave — model refinement (Phase 5, resolved in this wave)
+- **F8 — per-relation no-path residual.** Was: one global learnable scalar shifted every no-path candidate equally across all relations. Now: zero-initialized per-relation `nn.Embedding(num_relations, 1)` (fallback to the shared scalar when no relation count is available); the frozen VLKGE baseline contract and the Decision Record are intact (residual is exactly 0 before training). Micro-tested on a stub model: zero-init parity, per-relation offsets, gradient flow. *(Resolved in this wave.)*
+- **F9 — objective scale (decision recorded, no code change).** The margin-1 hinge on absolute fused scores remains for the first retrain (single-variable A/B against frozen VLKGE); scale-aware margins and contrastive/temperature variants stay with the planned B3 ablation. *(Decision recorded in this wave.)*
+- **F17 — accepted hot loops** — per-column token assembly, reconstruction L2 loop, and per-triple `pool_set` rebuilds remain; they are bounded (max_N=6, smoke-only, rejection fallback) and were deliberately left untouched. *(Accepted in this wave.)*
+- **Dead code removed** — `load_vlkge_model` (superseded by `train_pamr.py`'s inline loader) and the unused `_make_padding_mask` are gone. *(Resolved in this wave.)*
+
 ---
 
 ## 2. Partially resolved — code present, known gaps
 
 - **P6 — Metric and protocol asymmetry vs VLKGE.** Was: strict-vs-non-strict tie semantics diverged, evaluation conditioned on BFS reachability only (202 evaluated val queries, Hits@10≈0.97 blocks), and `mode: train_eval` accidentally filtered PAMR training instead of eval-only as commented. Since then: the relation filter mode semantics are explicit and enforced, PAMR reports candidate coverage and ranks candidate tails, tie handling is centralized in `pmr/ranking.py` (Section 1), and the small-block conditioning is documented via coverage. Remaining gaps:
-  1. score VL-KGE on exactly the same split-local target candidate set as PAMR (no code path exists yet that consumes a reachable-subset scored by the legacy scorer);
-- **PAMR sample-cache manifest** — caches are versioned (`v3`), whitelist-, and hop-aware, but do not yet embed the registry/split-policy hash as load-time validation (the checkpoint side is complete). *(Partially resolved in a previous turn.)*
-- **Batch-limited candidate grouping** — `grouped_pairwise`/`listwise_softmax` operate on whatever candidate set appears in the batch; a query-group batch sampler is needed to guarantee full candidate groups per batch. *(Partially resolved in a previous turn.)*
-- **Per-relation coverage reporting** — path/no-path counts and mean paths per candidate exist at dataset level; the per-relation breakdown inside `pamr_training_metrics.json` still needs these columns. *(Partially resolved in a previous turn.)*
-- **Runtime acceptance script** — registry invariants live inside `RelationRegistry`; a standalone runner for the 40-ID/22-raw-count/hash checks remains. *(Partially resolved in a previous turn.)*
+  1. score VL-KGE on exactly the same split-local target candidate set as PAMR (no code path exists yet that consumes a reachable-subset scored by the legacy scorer); the structural check that both score CSVs rank identical candidate tails also still needs a runner (Section 3).
+
+Closed by this wave (moved to Section 1): the cache manifest gap (v4 caches now embed and validate the registry/split-policy hashes), batch-limited candidate grouping (the bucketed query-group sampler guarantees complete candidate groups per batch), per-relation coverage reporting (`path_coverage` in `pamr_training_metrics.json`), and the registry acceptance script (`pmr/scripts/check_registry.py`).
 
 ---
 
 ## 3. Not touched
 
 - **Artifact regeneration (Phase 6)** — nothing has been re-run: old query CSVs, all-split path CSVs, `*.v2.samples.pkl` caches, preprocessed `graph.csv`, and both old VL-KGE (22 relations) and PAMR checkpoints remain on disk and are invalid under the new contract. Mandatory on compute:
-  1. compile `preprocess.cpp` (worker output now has 7 `;`-fields with `row_index`);
-  2. `prepare.py` → new query CSVs (target relations only, exact-K negatives);
-  3. `preprocess.py` → split-scoped `graph_{train,val,test}.csv` and enriched `*_paths.csv` + `*_paths_meta.json`;
-  4. retrain VL-KGE scopes (`train`, `train_val`, optional `train_val_test` oracle) with the 40-ID registry;
-  5. retrain PAMR per selected scope with `*_v3.samples.pkl` caches.
-- **Runtime structural checks** — no runner yet proves "no validation/test edge inside main val/test path graphs" or identical candidate tails between VL-KGE and PAMR score CSVs; deferred because it depends on regenerated artifacts.
+  1. run `pmr/scripts/check_registry.py --config configs/wikiart_mkg_v2/complex_clip.yaml --expect-raw 22 --expect-total 40`;
+  2. compile `preprocess.cpp` (7 `;`-fields with `row_index`, masking arguments, shared-forward BFS);
+  3. `prepare.py` → new query CSVs (target relations only, exact-K negatives);
+  4. `preprocess.py` → split-scoped `graph_{train,val,test}.csv`, per-probe masked train paths, enriched `*_paths.csv` + `*_paths_meta.json`;
+  5. retrain VL-KGE scopes (`train`, `train_val`, optional `train_val_test` oracle) with the 40-ID registry;
+  6. retrain PAMR per selected scope with `*_v4.samples.pkl` caches (group batching on, `min_eval_coverage` 0.95, `patience` 5, per-relation no-path residual).
+- **Runtime structural checks** — no runner yet proves "no validation/test edge inside main val/test path graphs", "own edges masked in train paths" (verifiable against `graph_train.csv` + paths), or identical candidate tails between VL-KGE and PAMR score CSVs; deferred because it depends on regenerated artifacts.
 - **Paper-metric refresh** — blocked on the regenerated, leakage-safe comparison.
+- **B3 contrastive/temperature objective** — deferred by decision (F9); the scale-aware-margin variant also lives there.
 
 ---
 
@@ -131,3 +137,19 @@ Inspection-wave decisions (2026-09-19 interview):
   retraining remain on the compute machine.
 - Code state is committed to git per phase (checkpoint `5a3af76`,
   Phase 1 `9f19ca2`).
+- Per-probe masking (F7): own query relations (query relation + registry
+  inverse between head and tail) are masked in every split; the
+  target-traversal rule is one uniform flag across splits (default true
+  = non-own target edges traversable; `false` denies all target edges).
+  Uniformity is what actually matches train and eval evidence rules; a
+  per-split difference would itself be a distributional skew.
+- Length-first composite: no-path candidates are excluded from lf ranking
+  by default (`lf_no_path_policy: exclude`), with the lf population and
+  skip counts reported; `infinite` ranks them after all path candidates.
+- Candidate-level objectives run with the bucketed query-group sampler
+  (`group_batches: true`) so candidate sets are complete per batch.
+- Production gates: `min_eval_coverage: 0.95` and `patience: 5`.
+- Production objective for the first retrain stays `grouped_pairwise`;
+  contrastive/temperature and scale-aware margins are B3 ablations.
+- No-path residual granularity is per query relation (zero-initialized);
+  the Decision Record's zero-init baseline contract is unchanged.
