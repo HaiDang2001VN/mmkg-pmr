@@ -329,8 +329,9 @@ stays untouched as the per-relation fallback. v4 changes:
   F=100 and F ∈ {50,100,200} at H=5 (training split, 8 threads).
 - Comparative Study now points at `sec:runtime` (was sec:implementation).
 - v4 figures: overview + case study + Tables 1/2/3 (results, runtime, sweep).
-- User runs the BFS/preprocess benchmark tonight and pastes numbers; agent
-  fills [TBD]s + polishes prose.
+- BFS benchmark runs COMPLETE — see §10: the sweep-table numbers exist
+  (val split, 2 threads, 12 v2 + 27 v3 rows in `assets/bfs.csv`); the
+  per-stage runtime table still needs the §9 checklist run.
 
 ### Measurement checklist (what the user must run; acceptance-oriented)
 
@@ -347,3 +348,86 @@ measurement. For an accepted-paper runtime section: per-stage decomposition
 + sensitivity table + explicit complexity tie-in (O(L^2h)/candidate,
 frontier decay vs naive O(F^{2H})) + the H=5/F=100 operating-point
 justification + memory facts (adjacency bytes, path-table disk size).
+
+---
+
+## 10. BFS preprocessing benchmark — runs complete (2026-09-20)
+
+What happened, in order: (a) the BFS worker (`pmr/models/pr/preprocess.cpp`)
+was rewritten as **worker v2** — ONE process parses the split graph once and
+spawns `num_threads` internal `std::thread`s over one shared CSR adjacency
+(12-byte packed edges, sorted + exact-duplicate-deduped per node), BFS state
+lives in per-thread epoch-stamped arenas (no per-probe allocations), and the
+CSV is parsed in place from 16 MB chunked reads with `from_chars`; (b) the
+worker was **hardened** after a full re-read audit (edge-less-graph guard,
+graph-row range validation with a counted warn, line-reader growth,
+`max_hops` clamp; no memory leaks — all RAII); (c) a Colab-CPU benchmark
+notebook (`notebooks/bfs_benchmark_colab.ipynb`, committed) mounts Drive,
+mirrors the repo + 1 GB triples CSV incrementally (`rsync --checksum
+--delete`, `--size-only` for the CSV), regenerates the val queries with the
+40-ID registry (`prepare.py`, memory-safe: relation-restricted scope maps +
+raw-frame release), builds the val fixture via `preprocess.py --splits val
+--keep-temp`, calibrates the graph-load cost with a header-only run, sweeps
+the BFS hyperparameters, audits output completeness per config, and exports
+`assets/bfs.csv` (cumulative, batch-tagged, deduplicated).
+
+Two measured batches live in `assets/bfs.csv` (39 rows, one schema):
+- **v2 batch (12 rows)** — hops {3,5} × fanout {10,50,100} × decay
+  {0.5,1.0}, val split (train-scoped graph, 2 threads, 2,222 probes =
+  202 val queries × 11 candidates, own-edge masking ON, uniform
+  target-traversal allow rule).
+- **v3 batch (27 rows)** — the full grid: hops {2,3,5} × fanout
+  {10,50,100} × decay {0.2,0.5,1.0}. The 12 v2 configs are a strict
+  subset and every shared config reproduces **identical found/missing
+  counts across batches** (deterministic worker; comparable batches).
+
+### Headline results (val split, 2 CPU threads, mask on)
+- **Cost is now negligible and bounded**: graph load 3.5–4.6 s constant;
+  total wall 3.6–14.8 s per config; peak RSS 204–227 MB (one shared
+  adjacency, independent of thread count). Production operating point
+  (H=5, F=100, D=0.5): 8.6 s wall for the full val split ≈ **1.8 ms per
+  probe** of search.
+- **Reachability is dominated by `max_fanout`**: F=10 finds ~4% of
+  candidates at H=3 (95/2,222) and 71–95% at H=5; F=50 reaches ~99.3% at
+  H=5; F=100 reaches 99.4%. **`decay_factor` prunes monotonically at low
+  fanout**: H=3/F=10 finds 72/95/120 paths at D=0.2/0.5/1.0; H=5/F=10
+  finds 1,542/1,974/2,115. At F≥50 the decay axis barely matters for
+  reachability (2,207–2,208 of 2,222) but scales search cost (H=5,F=100:
+  8.6 s at D=0.5 vs 14.8 s at D=1.0).
+- **H=2 yields zero evidence**: with own-edge masking on, no val probe
+  has a ≤2-hop path under any fanout/decay (found=0/2,222 everywhere) —
+  the minimum viable hop bound is **H≥3**.
+- `self_est`=14 (self-probes) is constant across all configs; worker
+  outputs are byte-deterministic across runs.
+
+### How another agent should adjust the paper (paperv4 §9)
+1. **`tab:bfs-sweep` [TBD]s**: the measured sweep is **val split, 2
+   threads, F ∈ {10,50,100}, H ∈ {2,3,5}, D ∈ {0.2,0.5,1.0}** — NOT the
+   placeholder spec (train split, 8 threads, F up to 200, H up to 4).
+   Either re-label the table caption to match reality ("validation-split
+   graph, 2 CPU threads") or re-run the sweep on the train split if the
+   paper must say train. Do NOT paste 8-thread numbers from this CSV.
+2. **`tab:runtime` [TBD]s**: only the BFS stage is covered (search ≈
+   1.8 ms/probe; load 3.5–4.6 s; RSS ≈ 0.22 GB). The other stages
+   (graph ingestion in prepare, query generation, path-table write,
+   paired-dataset build, training epochs, test inference) still need the
+   §9 measurement checklist run — this benchmark does not fill those.
+3. **Leakage paragraph (§3.3 / B1)**: the previously text-only claim is
+   now code-backed: own-edge masking (query relation + registry inverse,
+   both orientations) is enforced per probe in EVERY split
+   (`path_graph.mask_query_edges: true`, default), split scopes keep
+   val/test facts out of their own path graphs, and the uniform
+   target-traversal rule has no per-split skew. The paper may state this
+   as an enforced mechanism, not a protocol intention.
+4. **Hop-bound justification**: use the hops=2 zero-evidence finding to
+   justify the H=5 operating point (H≥3 is the floor; H=5 reaches 99.4%
+   with the production fanout). The old paper text assumed BFS params
+   were free — they trade reachability for time measurably.
+5. **Do NOT claim**: model-quality effects of H/F/D (no PAMR retraining
+   data yet), thread-scaling numbers (only 2 threads measured), or
+   per-candidate latency beyond the val-split aggregate.
+
+State: notebook + worker v2 committed (`427b0d4`, `748bf52`, `1ad6788`,
+`470c4c8`, `1dced4e`); fixtures live only inside the Colab runtime
+(incrementally re-syncable); `assets/bfs.csv` is the single source of
+truth for all BFS numbers.
