@@ -59,6 +59,12 @@ def parse_args():
                         help="Path to PR YAML config file")
     parser.add_argument("--no-compile", action="store_true",
                         help="Skip C++ compilation (assume binary exists)")
+    parser.add_argument("--splits", type=str, default=None,
+                        help="Comma-separated subset of splits to process "
+                             "(default: all of train,val,test)")
+    parser.add_argument("--keep-temp", action="store_true",
+                        help="Keep per-run query/thread output files "
+                             "(overrides the keep_temp config key)")
     return parser.parse_args()
 
 
@@ -181,7 +187,7 @@ def main():
     max_fanout   = pr_cfg["max_fanout"]
     decay_factor = pr_cfg["decay_factor"]
     num_threads  = pr_cfg["num_threads"]
-    keep_temp    = pr_cfg.get("keep_temp", False)
+    keep_temp    = pr_cfg.get("keep_temp", False) or args.keep_temp
 
     # Split-aware path graph scope. Main protocol: validation paths may only
     # use train facts, test paths may use train+val facts. The graph source
@@ -366,7 +372,15 @@ def main():
 
     # ── 5. Process each split ─────────────────────────────────────────────
 
-    for split_name in ["train", "val", "test"]:
+    requested_splits = (
+        [s.strip() for s in args.splits.split(",")] if args.splits
+        else ["train", "val", "test"])
+    invalid_splits = set(requested_splits) - {"train", "val", "test"}
+    if invalid_splits:
+        raise ValueError(
+            f"Unknown splits requested via --splits: {sorted(invalid_splits)}")
+
+    for split_name in requested_splits:
         queries_path = os.path.join(prepare_output_dir, f"{split_name}_queries.csv")
         if not os.path.exists(queries_path):
             print(f"\n  SKIP {split_name}: queries CSV not found")
