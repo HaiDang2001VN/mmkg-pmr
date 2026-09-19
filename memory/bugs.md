@@ -39,13 +39,22 @@ Code and configuration work is complete; only artifact regeneration/retraining (
 - **Exact negative sampling** — set-subtraction requires K eligible candidates; rejection sampling completes deterministically from the eligible set; incomplete queries are skipped and counted, never silently underfilled. Relation metadata, split/candidate policies, and registry hash are persisted in `metadata.json`. *(Resolved in a previous turn.)*
 - **Path-graph split leakage** — Was: BFS graph loaded the raw all-split CSV. Now: per-split scoped graphs (`graph_{split}.csv` + `graph_*_meta.json`), defaults train for val and train+val for test; transductive diagnostics require an explicit `path_graph` section. *(Resolved in a previous turn; runtime verification deferred — Section 3.)*
 
+### Inspection wave 2026-09-19 — deep no-run audit findings (F-numbered)
+- **F1 — `NameError` in `_aggregate_candidates`.** Was: the signature was `(scores, query_ids, candidate_tail_ids)` while the body read `labels[gather]`, so every candidate-level loss mode (`grouped_pairwise` prod default, `binary_candidate`, `listwise_softmax`, `reconstruction`) crashed on the first `compute_loss` with `NameError: name 'labels' is not defined`. Now: probe labels are threaded through both `compute_loss` call sites; verified by a torch micro-test on grouped max-aggregation. *(Resolved in this wave.)*
+- **F2 — `pamr_collate` built but never returned `probe_head_ids`.** Was: the return tuple carried 11 tensors against a 12-name unpack in `train_pamr.py` (train/val/test sites) → `ValueError: not enough values to unpack` at the first batch in any loss mode. Now: 12-field contract with `probe_head_ids` at index 8, `hops` at 9, `has_path` at 10, `token_mask` last, verified against the exact unpack. *(Resolved in this wave.)*
+- **F18 — mixed path/no-path padding crash** (found by the collate micro-test). Was: `pad_edges[i, :N-1]` with `N=0` sliced `[:-1]` — all-but-last column — instead of empty, so any batch mixing path and no-path probes with `max_N >= 2` raised a shape RuntimeError. Now: `edge_len = max(N-1, 0)` clamp. *(Resolved in this wave.)*
+- **F3 — merge-step positional unpack scramble** (`preprocess.py`). Was: `row_meta` tuples were `(query_id, head_id, tail_id, relation_id, is_positive)` but the unpack bound `candidate_tail_id ← head_id`, `query_relation_id ← tail_id`, `is_positive ← relation_id`, `query_head_id ← is_positive` — silently wrong columns in every merged paths row (path probes crashed downstream, no-path probes carried head=entity 0/1 and label=relation id). Now: keyed probe records (dicts) — no positional unpack anywhere in the merge. *(Resolved in this wave.)*
+- **F4 — stale missing-path worker row layout** (`preprocess.cpp:321`). Was: unreachable probes emitted `qid;-1;;;;;row_index` (old contract), so the merge parsed `row_index=-1` → RuntimeError, aborting path extraction at the first unreachable probe. Now: emits `qid;row_index;-1;;;;`. *(Resolved in this wave.)*
+- **F5 — self-probe rows crashed sample building.** Was: the `head == tail` C++ branch emitted `hops=0` with two nodes (`"h,h"`), violating the `len(nodes)==hops+1` sample contract whenever a sampled candidate equaled the query head. Now: self-probes emit the standard no-path record (per interview decision: no self-edge exists, so no-path is semantically correct and keeps the direct VLKGE score + learned residual); `self` is a subset of unreachable and no longer double-counted in the run summary. *(Resolved in this wave.)*
+- **F10a — worker failures swallowed at merge.** Was: failed C++ threads only printed a WARNING; their probes silently vanished from the paths CSV (shrinking candidate sets, possibly dropping positives while negatives survived), and nothing verified output completeness. Now: failed threads abort the split before merge, and the pure `audit_probe_completeness` helper enforces every prepared probe exactly once (micro-tested for complete/missing/duplicate cases). *(Resolved in this wave.)*
+- **Evaluator centralization (closes Section 2 gap 2).** Was: `evaluate.py` computed `rank_ns = sum(scores >= pos_score) + 1`, double-counting the selected positive per tie, with a second, divergent evaluator in `train_pamr.py`. Now: `pmr/ranking.py` is the single shared ranker (strict/non-strict corrected semantics, best-positive selection, candidate-tail aggregation, per-relation Accuracy); `evaluate.py` is rewired onto it and `train_pamr.py` passes `rel_for_qid` explicitly (module-global removed). Micro-tested: tie cases, multi-positive queries, candidate aggregation, exclusion, no-positive skips. *(Resolved in this wave.)*
+
 ---
 
 ## 2. Partially resolved — code present, known gaps
 
-- **P6 — Metric and protocol asymmetry vs VLKGE.** Was: strict-vs-non-strict tie semantics diverged, evaluation conditioned on BFS reachability only (202 evaluated val queries, Hits@10≈0.97 blocks), and `mode: train_eval` accidentally filtered PAMR training instead of eval-only as commented. Since then: the relation filter mode semantics are explicit and enforced, PAMR reports candidate coverage and ranks candidate tails, and the small-block conditioning is documented via coverage. Remaining gaps:
+- **P6 — Metric and protocol asymmetry vs VLKGE.** Was: strict-vs-non-strict tie semantics diverged, evaluation conditioned on BFS reachability only (202 evaluated val queries, Hits@10≈0.97 blocks), and `mode: train_eval` accidentally filtered PAMR training instead of eval-only as commented. Since then: the relation filter mode semantics are explicit and enforced, PAMR reports candidate coverage and ranks candidate tails, tie handling is centralized in `pmr/ranking.py` (Section 1), and the small-block conditioning is documented via coverage. Remaining gaps:
   1. score VL-KGE on exactly the same split-local target candidate set as PAMR (no code path exists yet that consumes a reachable-subset scored by the legacy scorer);
-  2. `evaluate.py` still double-counts ties in `MRR_ns` (`np.sum(scores >= pos_score) + 1`) — centralize tie/multi-positive ranking in one shared evaluator.
 - **PAMR sample-cache manifest** — caches are versioned (`v3`), whitelist-, and hop-aware, but do not yet embed the registry/split-policy hash as load-time validation (the checkpoint side is complete). *(Partially resolved in a previous turn.)*
 - **Batch-limited candidate grouping** — `grouped_pairwise`/`listwise_softmax` operate on whatever candidate set appears in the batch; a query-group batch sampler is needed to guarantee full candidate groups per batch. *(Partially resolved in a previous turn.)*
 - **Per-relation coverage reporting** — path/no-path counts and mean paths per candidate exist at dataset level; the per-relation breakdown inside `pamr_training_metrics.json` still needs these columns. *(Partially resolved in a previous turn.)*
@@ -91,3 +100,21 @@ Code and configuration work is complete; only artifact regeneration/retraining (
   residual. No-path candidates retain the direct VLKGE score.
 - PAMR loss selection is configurable among grouped pairwise, listwise
   softmax, and binary candidate objectives.
+
+Inspection-wave decisions (2026-09-19 interview):
+
+- Self-probes (candidate tail equal to the query head) are explicit
+  no-path probes: no self-edge exists, so the candidate keeps the direct
+  frozen VLKGE score plus the learned no-path residual.
+- Path merges abort on failed workers and on incomplete or duplicated
+  probe outputs; probe completeness is audited per split.
+- Ranking semantics live in `pmr/ranking.py` and are shared by
+  `evaluate.py` and `train_pamr.py` (single strict/non-strict/multi-positive
+  definition).
+- Local verification is restricted to py_compile, a C++ syntax check,
+  numpy/pure-function micro-tests, and torch micro-tests via the
+  `graphml` conda env; no training, data generation, or GPU work happens
+  locally. Artifact regeneration, compilation for production, and
+  retraining remain on the compute machine.
+- Code state is committed to git per phase (checkpoint `5a3af76`,
+  Phase 1 `9f19ca2`).
