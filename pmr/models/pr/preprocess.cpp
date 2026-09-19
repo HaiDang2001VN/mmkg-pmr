@@ -50,6 +50,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstring>
 
 #include <fcntl.h>
 #include <sys/stat.h>

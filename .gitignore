@@ -3,3 +3,6 @@
 *.ipynb
 # tracked benchmark notebooks
 !notebooks/*.ipynb
+
+# === OS metadata ===
+.DS_Store
