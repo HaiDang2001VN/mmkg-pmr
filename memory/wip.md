@@ -310,3 +310,40 @@ User's pick: **unweighted mean + weighted std** in Table 1 cells
   remains correct (0.379 vs 0.363).
 - average.csv retains all four columns per metric; `wavg`/`wstd` stay
   available for any later re-analysis.
+
+## 9. paperv4 — runtime/scalability replacement (2026-09-19, SOICT due tomorrow)
+
+`assets/paperv4.tex` = paperv3 with the Per-Relation Analysis REPLACED by
+`\subsection{Runtime and Scalability Analysis}` (label sec:runtime). paperv3
+stays untouched as the per-relation fallback. v4 changes:
+- Per-relation subsubsection + `per_relation.svg` figure + both analysis
+  paragraphs DELETED. One-sentence takeaway folded into Comparative Study:
+  "PAMR leads most metrics on isPupilOf/isInfluencedOn, TransE on
+  isTeacherOf/isInfluencedBy, PAR trails on all four."
+- §4.1's `Runtime` paragraph removed (content migrated).
+- New subsection holds TWO placeholder tables with 24 \textbf{[TBD]} slots:
+  (1) `tab:runtime` — per-stage wall-clock + peak memory (graph ingestion,
+  query generation, BFS train 7.87M / val / test, path-table write,
+  paired-dataset build per epoch, training epochs PAMR 543s / TransE 577s,
+  test inference); (2) `tab:bfs-sweep` — BFS sensitivity to H ∈ {2..5} at
+  F=100 and F ∈ {50,100,200} at H=5 (training split, 8 threads).
+- Comparative Study now points at `sec:runtime` (was sec:implementation).
+- v4 figures: overview + case study + Tables 1/2/3 (results, runtime, sweep).
+- User runs the BFS/preprocess benchmark tonight and pastes numbers; agent
+  fills [TBD]s + polishes prose.
+
+### Measurement checklist (what the user must run; acceptance-oriented)
+
+Stage table (single run, warm cache, same instance as §4.1; state hardware):
+1. graph CSV -> adjacency build; 2. query generation; 3. BFS per split
+separately (train/val/test at H=5, F=100, 8 threads); 4. path-table write;
+5. paired-dataset build per epoch; 6. one training epoch (PAMR + TransE);
+7. full test inference over 208k queries. Record seconds + peak RSS/MB each.
+BFS sweep: H in {2,3,4,5} at F=100 AND F in {50,100,200} at H=5 (training
+split); seconds + peak MB per config. Optional cheap extras: thread scaling
+(1/2/4/8); one smaller-graph point for a size-scaling sentence.
+DO NOT claim: model quality vs H (no data), per-candidate latency without
+measurement. For an accepted-paper runtime section: per-stage decomposition
++ sensitivity table + explicit complexity tie-in (O(L^2h)/candidate,
+frontier decay vs naive O(F^{2H})) + the H=5/F=100 operating-point
+justification + memory facts (adjacency bytes, path-table disk size).

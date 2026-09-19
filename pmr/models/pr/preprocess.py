@@ -17,7 +17,6 @@ import os
 import subprocess
 import sys
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -112,7 +111,9 @@ def compile_cpp(source, binary, flags):
 
 
 def _run_one_thread(args_tuple):
-    """Run the C++ binary for one thread_id. Returns (thread_id, ok)."""
+    """Run the C++ worker once (worker v2 manages its threads internally).
+
+    Returns (thread_id_marker, ok)."""
     (binary, graph_csv, queries_csv, output_prefix,
      max_hops, max_fanout, decay_factor,
      thread_id, num_threads, log_dir,
@@ -126,9 +127,9 @@ def _run_one_thread(args_tuple):
     result = subprocess.run(cmd, capture_output=True, text=True)
     ok = (result.returncode == 0)
     if not ok:
-        print(f"  [thread {thread_id}] FAILED (rc={result.returncode})")
+        print(f"  [worker] FAILED (rc={result.returncode})")
         if result.stderr.strip():
-            print(f"    stderr: {result.stderr.strip()[:200]}")
+            print(f"    stderr: {result.stderr.strip()[:400]}")
     return thread_id, ok
 
 
@@ -483,36 +484,27 @@ def main():
         n_unique = qdf["query_id"].nunique()
         print(f"    → {queries_csv_path}  ({len(qdf):,} rows, {n_unique:,} unique queries)", flush=True)
 
-        # ── 5c. Spawn subprocesses ────────────────────────────────────────
+        # ── 5c. Run the C++ worker ────────────────────────────────────────
+        # Worker v2: ONE process parses the graph once and spawns num_threads
+        # internal threads over contiguous query-group ranges; each thread
+        # still writes its own _paths_<tid>.txt part file for the merge.
         output_prefix = os.path.join(run_dir, f"{split_name}")
-        print(f"  Spawning {num_threads} processes ...", flush=True)
+        print(f"  Running worker (1 process, {num_threads} internal threads) ...",
+              flush=True)
         print(f"    C++ logs: {run_dir}/_*_preprocess.log", flush=True)
 
-        tasks = [(binary, graph_csv_path, queries_csv_path, output_prefix,
-                  max_hops, max_fanout, decay_factor,
-                  tid, num_threads, run_dir,
-                  mask_query_edges, allow_target_traversal, target_ids_csv)
-                 for tid in range(num_threads)]
-        ok_count = 0
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = {executor.submit(_run_one_thread, t): t[7] for t in tasks}
-            for fut in as_completed(futures):
-                tid, ok = fut.result()
-                if ok:
-                    ok_count += 1
-                    print(f"    [thread {tid}] done")
-                else:
-                    print(f"    [thread {tid}] FAILED")
-
-        if ok_count < num_threads:
-            failed = [tid for tid in range(num_threads)
-                      if not os.path.exists(
-                          f"{output_prefix}_paths_{tid}.txt")]
+        rc = _run_one_thread((binary, graph_csv_path, queries_csv_path,
+                              output_prefix,
+                              max_hops, max_fanout, decay_factor,
+                              0, num_threads, run_dir,
+                              mask_query_edges, allow_target_traversal,
+                              target_ids_csv))
+        _, ok = rc
+        if not ok:
             raise RuntimeError(
-                f"{num_threads - ok_count}/{num_threads} C++ workers failed "
-                f"for split {split_name}; their probes would silently vanish "
-                "from the paths CSV. Inspect the logs under "
-                f"{run_dir}/_*_preprocess.log and rerun the split."
+                f"The C++ worker failed for split {split_name}; its probes "
+                "would silently vanish from the paths CSV. Inspect the logs "
+                f"under {run_dir}/_*_preprocess.log and rerun the split."
             )
 
         # ── 5d. Merge outputs ─────────────────────────────────────────────
