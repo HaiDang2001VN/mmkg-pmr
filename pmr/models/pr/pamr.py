@@ -35,115 +35,6 @@ from pmr import helpers, utils
 
 # ── VL-KGE model loader ────────────────────────────────────────────────────
 
-def load_vlkge_model(model_config_path, checkpoint_path, device="cpu"):
-    """
-    Load a frozen VL-KGE model from config + checkpoint.
-
-    Returns (vlkge_model, entity_to_id, relation_to_id, num_entities, num_relations)
-    """
-    # Resolve config
-    cfg_path = Path(model_config_path)
-    if not cfg_path.is_absolute():
-        pkg_root = Path(__file__).parent.parent.parent  # pmr
-        for cand in [cfg_path, pkg_root / cfg_path]:
-            if cand.exists():
-                cfg_path = cand.resolve()
-                break
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"VLKGE model config not found: {model_config_path}")
-    cfg = utils.load_yaml_config(cfg_path)
-    cfg = utils.resolve_config_paths(cfg, base_dir=cfg_path.parent,
-                                     repo_root=Path(__file__).parent.parent.parent.parent)
-
-    # Data loader for entity/relation ID maps
-    dl = KnowledgeGraphDataLoader(
-        data_path=cfg["data_path"],
-        dataset_name=cfg["dataset"],
-        exclude_relations=cfg.get("exclude_relations"),
-        exclude_relations_eval=cfg.get("exclude_relations_eval"),
-        inverse_relation_pairs=cfg.get("inverse_relation_pairs"),
-        symmetric_relations=cfg.get("symmetric_relations"),
-        use_per_relation_candidates=cfg.get("use_per_relation_candidates", True),
-        artist2artist_relations=cfg.get("artist2artist_relations"),
-        bidirectional_eval=cfg.get("bidirectional_eval", False),
-    )
-    entity_to_id, relation_to_id = dl.get_entities_and_relations()
-
-    # Features
-    from types import SimpleNamespace
-    feat_args = SimpleNamespace(
-        use_visual=cfg.get("use_visual", True),
-        use_textual=cfg.get("use_textual", True),
-        use_relation_features=cfg.get("use_relation_features", False),
-        visual_features_path=cfg.get("visual_features_path"),
-        textual_features_path=cfg.get("textual_features_path"),
-        relation_features_path=cfg.get("relation_features_path"),
-        normalize_visual=cfg.get("normalize_visual", False),
-        normalize_textual=cfg.get("normalize_textual", False),
-        normalize_relation=cfg.get("normalize_relation", False),
-    )
-    (visual_features, textual_features, relation_features,
-     visual_entity_to_index, textual_entity_to_index) = utils.load_features(
-         feat_args, entity_to_id, relation_to_id,
-         num_relations=dl.get_num_relations())
-
-    # Build model
-    model, _, _ = helpers.get_model(
-        model_name=cfg["model"],
-        num_entities=len(entity_to_id),
-        num_relations=dl.get_num_relations(),
-        visual_features=visual_features,
-        textual_features=textual_features,
-        relation_features=relation_features,
-        visual_entity_to_index=visual_entity_to_index,
-        textual_entity_to_index=textual_entity_to_index,
-        embedding_dim=cfg.get("embedding_dim", 768),
-        fusion_mode=cfg.get("fusion_mode", "average"),
-        use_structural=cfg.get("use_structural", True),
-        use_visual=cfg.get("use_visual", True),
-        use_textual=cfg.get("use_textual", True),
-        freeze_visual=cfg.get("freeze_visual", True),
-        freeze_textual=cfg.get("freeze_textual", True),
-        visual_proj=cfg.get("visual_proj", False),
-        textual_proj=cfg.get("textual_proj", False),
-        shared_projection=cfg.get("shared_projection"),
-        inductive=cfg.get("inductive", False),
-        modality_asymmetry=cfg.get("modality_asymmetry", False),
-        normalize_before_fusion=cfg.get("normalize_before_fusion", False),
-        p_norm=cfg.get("p_norm", 1),
-        normalize_relations=cfg.get("normalize_relations", True),
-        margin=cfg.get("margin", 12.0),
-        lr=cfg.get("lr", 0.1),
-        use_scheduler=False,
-        device=device,
-    )
-    model.to(device)
-
-    # Load checkpoint
-    if not os.path.exists(checkpoint_path):
-        raise FileNotFoundError(f"VLKGE checkpoint not found: {checkpoint_path}")
-    ckpt = torch.load(checkpoint_path, map_location=device)
-    state = ckpt.get("model_state_dict", ckpt)
-    model.load_state_dict(state)
-    model.eval()
-
-    # Mark seen entities for inductive
-    if cfg.get("inductive", False) and hasattr(model, "mark_seen_entities"):
-        train_data, _, _ = dl.split_data()
-        seen = set(train_data["head"]).union(set(train_data["tail"]))
-        train_ids = torch.tensor(
-            [entity_to_id[e] for e in seen if e in entity_to_id], dtype=torch.long)
-        model.mark_seen_entities(train_ids)
-
-    # Freeze all VLKGE params
-    for p in model.parameters():
-        p.requires_grad = False
-
-    num_entities = len(entity_to_id)
-    num_relations = dl.get_num_relations()
-    return model, entity_to_id, relation_to_id, num_entities, num_relations
-
-
 # ── Multiprocessing sample-building worker ─────────────────────────────────
 
 def _build_samples_worker(args):
@@ -856,10 +747,17 @@ class PAMR(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(d_model, 1),
         )
-        # Learnable scalar residual assigned to probes whose BFS found no
-        # path; zero-initialized so no-path probes also start at the VLKGE
-        # baseline.
-        self.no_path_residual = nn.Parameter(torch.zeros(1))
+        # Learnable per-relation residual assigned to probes whose BFS found
+        # no path; zero-initialized so no-path probes also start at the VLKGE
+        # baseline. Falls back to the single shared scalar when the relation
+        # count is unavailable.
+        if num_relation_types and num_relation_types > 0:
+            self.no_path_residual_emb = nn.Embedding(int(num_relation_types), 1)
+            nn.init.zeros_(self.no_path_residual_emb.weight)
+            self.no_path_residual = None
+        else:
+            self.no_path_residual_emb = None
+            self.no_path_residual = nn.Parameter(torch.zeros(1))
         # Gate scaling the reconstruction residual in reconstruction mode.
         self.recon_gate = nn.Parameter(torch.zeros(1))
 
@@ -914,7 +812,10 @@ class PAMR(nn.Module):
         nn.init.zeros_(self.recon_head.bias)
         # Residual parameters start at exactly zero so both path and no-path
         # probes reproduce the frozen VLKGE score before any training step.
-        nn.init.zeros_(self.no_path_residual)
+        if self.no_path_residual_emb is not None:
+            nn.init.zeros_(self.no_path_residual_emb.weight)
+        else:
+            nn.init.zeros_(self.no_path_residual)
         nn.init.zeros_(self.recon_gate)
 
     def _entity_imag_full(self, entity_ids, real_embs):
@@ -1000,18 +901,6 @@ class PAMR(nn.Module):
         if self._is_rotate:
             return torch.cat([torch.cos(rel_real), torch.sin(rel_real)], dim=-1)
         return rel_real
-
-    def _make_padding_mask(self, path_lengths, max_N):
-        """Build a token mask from explicit path lengths."""
-        B = path_lengths.shape[0]
-        max_len = 2 * max_N + 1
-        device = path_lengths.device
-
-        mask = torch.ones(B, max_len, dtype=torch.bool, device=device)
-        for b in range(B):
-            N = int(path_lengths[b].item())
-            mask[b, :2 * N + 1] = False
-        return mask
 
     def _find_r2_positions(self, token_mask):
         B, max_len = token_mask.shape
@@ -1135,8 +1024,15 @@ class PAMR(nn.Module):
                 probe_head_ids, query_rel_id, candidate_tail_ids
             ).to(torch.float32)
 
-        # No-path probes keep the frozen score plus a learned scalar residual.
-        scores = vlkge_scores + self.no_path_residual.expand(B)
+        # No-path probes keep the frozen score plus a learned residual.
+        # Per-relation residuals let the offset differ across query
+        # relations; both variants are zero-initialized.
+        if self.no_path_residual_emb is not None:
+            no_path_offset = self.no_path_residual_emb(
+                query_rel_id).squeeze(-1)
+        else:
+            no_path_offset = self.no_path_residual.expand(B)
+        scores = vlkge_scores + no_path_offset
 
         if not bool(has_path.any()):
             return scores
