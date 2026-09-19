@@ -28,6 +28,64 @@ from pmr.models.pr.pamr import (PAMR, PAMRDataset, PAMRPairedDataset,
 from pmr.ranking import compute_rank_metrics
 from pmr import helpers, utils
 
+def per_relation_path_coverage(datasets, relation_to_id):
+    """Per-relation path/no-path probe and query counts per split.
+
+    Consumed from dataset samples so whitelist filtering and split scoping
+    are honoured exactly as loaded. Pairs-based train datasets are flattened
+    (pos, neg) pairs; standalone positives are included once.
+    """
+    id_to_relation = {rel_id: name for name, rel_id in relation_to_id.items()}
+
+    def iter_samples(ds):
+        if hasattr(ds, "samples"):
+            return ds.samples
+        if hasattr(ds, "pairs"):
+            return [sample for pair in ds.pairs
+                    for sample in pair if sample is not None]
+        return None
+
+    out = {}
+    for split_name, ds in datasets.items():
+        source = iter_samples(ds)
+        if source is None:
+            continue
+        rel_stats = {}
+        for s in source:
+            rel_name = id_to_relation.get(int(s["query_rel_id"]),
+                                           "internal_inverse")
+            st = rel_stats.setdefault(rel_name, {
+                "probes": 0,
+                "path_probes": 0,
+                "no_path_probes": 0,
+                "positive_probes": 0,
+                "queries": set(),
+                "candidate_pairs": set(),
+            })
+            st["probes"] += 1
+            st["path_probes"] += int(s["has_path"])
+            st["no_path_probes"] += int(not s["has_path"])
+            st["positive_probes"] += int(bool(s["is_positive"]))
+            st["queries"].add(s["row_id"][0])
+            st["candidate_pairs"].add(
+                (s["row_id"][0], s["candidate_tail_id"]))
+        summary = {}
+        for rel_name, st in sorted(rel_stats.items()):
+            n_candidates = max(len(st["candidate_pairs"]), 1)
+            summary[rel_name] = {
+                "probes": st["probes"],
+                "path_probes": st["path_probes"],
+                "no_path_probes": st["no_path_probes"],
+                "positive_probes": st["positive_probes"],
+                "queries_with_probes": len(st["queries"]),
+                "candidate_tails": len(st["candidate_pairs"]),
+                "mean_paths_per_candidate": round(
+                    st["path_probes"] / n_candidates, 6),
+            }
+        out[split_name] = summary
+    return out
+
+
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PKG_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = PKG_ROOT.parent
@@ -253,6 +311,9 @@ def resolve_config(config_path_str):
     if num_workers is None:
         num_workers = 4 if device.type == "cuda" else 0
     batch_size = config.get("batch_size", 64)
+    # Full val/test enumeration in train-sized batches wastes GPU capacity;
+    # evaluation pads shorter paths only, so large eval batches are safe.
+    eval_batch_size = int(config.get("eval_batch_size", 1024))
 
     max_hops = config.get("max_hops", 5)
 
@@ -284,20 +345,23 @@ def resolve_config(config_path_str):
             ds = PAMRPairedDataset(paths_csv, queries_csv, entity_to_id,
                                    relation_to_id, max_hops=max_hops,
                                    relation_whitelist=wl,
-                                   num_relations=dl.get_num_relations())
+                                   num_relations=dl.get_num_relations(),
+                                   registry_hash=relation_registry.registry_hash)
         else:
             ds = PAMRDataset(paths_csv, queries_csv, entity_to_id,
                              relation_to_id, max_hops=max_hops,
                              relation_whitelist=wl,
-                             num_relations=dl.get_num_relations())
+                             num_relations=dl.get_num_relations(),
+                             registry_hash=relation_registry.registry_hash)
         print(f"    {len(ds):,} samples")
         datasets[split] = ds
 
+        loader_batch_size = batch_size if split == "train" else eval_batch_size
         shuffle = (split == "train")
         collate_fn = pamr_paired_collate if split == "train" else pamr_collate
         dl_obj = DataLoader(
             ds,
-            batch_size=batch_size,
+            batch_size=loader_batch_size,
             shuffle=shuffle,
             collate_fn=collate_fn,
             num_workers=num_workers,
@@ -387,7 +451,7 @@ def resolve_config(config_path_str):
     print(f"  Config:      {args.config}")
     print(f"  Device:      {device}")
     print(f"  Epochs:      {epochs}")
-    print(f"  Batch size:  {batch_size}")
+    print(f"  Batch size:  {batch_size}  (eval: {eval_batch_size})")
     print(f"  LR:          {lr}")
     print(f"  Patience:    {patience}")
     print(f"  Eval every:  {eval_every}")
@@ -852,6 +916,8 @@ def resolve_config(config_path_str):
             "per_epoch": epoch_metrics,
             "best_epoch": best_epoch,
             "best_val_mrr": round(best_val_mrr, 6),
+            "path_coverage": per_relation_path_coverage(
+                datasets, relation_to_id),
             "test": {
                 k: v for k, v in test_metrics.items()
             },

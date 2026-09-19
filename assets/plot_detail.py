@@ -4,7 +4,35 @@ import matplotlib.ticker as mticker
 import os
 
 path = os.path.dirname(os.path.abspath(__file__))
-df = pd.read_csv(os.path.join(path, 'result.csv'))
+
+
+def load_result(path):
+    """Load result.csv into a Method-indexed frame with flat rel_metric columns.
+
+    Supports the grouped two-row header (row 1 = relations, row 2 = metrics)
+    and falls back to the legacy flat single-header layout (resultv0.csv).
+    """
+    with open(path) as f:
+        lines = f.readlines()
+    if len(lines) > 1 and lines[1].lstrip().startswith('Method'):
+        raw = pd.read_csv(path, header=[0, 1], index_col=0)
+        df = pd.DataFrame(index=raw.index)
+        df.index.name = 'Method'
+        current = None
+        for rel, metric in raw.columns:
+            metric = str(metric).strip()
+            if metric == 'MRR Overall':
+                df['MRR Overall'] = raw[(rel, metric)].values
+                continue
+            rel = str(rel).strip()
+            if rel and not rel.startswith('Unnamed'):
+                current = rel
+            df[f'{current}_{metric}'] = raw[(rel, metric)].values
+        return df
+    return pd.read_csv(path).set_index('Method')
+
+
+df = load_result(os.path.join(path, 'result.csv'))
 
 methods = [
     'VLKGE-TransE', 'VLKGE-RotatE', 'VLKGE-DistMult',

@@ -203,28 +203,26 @@ class KnowledgeGraphDataLoader:
     
     def _materialize_inverse_relations(self):
         """Add reciprocal facts without inventing public relation names."""
-        inverse_rows = []
-        source_rows = self.data.copy()
-        for row in source_rows.itertuples(index=False):
-            source_id = int(row.relation_id)
-            inverse_id = self.relation_registry.inverse_id(source_id)
-            public_name = self.relation_registry.public_relation_name(inverse_id)
-            inverse_rows.append({
-                'head': row.tail,
-                'relation': public_name,
-                'tail': row.head,
-                'mode': row.mode,
-                'relation_id': inverse_id,
-                'is_inverse': True,
-            })
-
-        if inverse_rows:
-            inverse_df = pd.DataFrame(inverse_rows)
-            self.data = pd.concat([self.data, inverse_df], ignore_index=True)
-            self.data = self.data.drop_duplicates(
-                subset=['head', 'relation_id', 'tail', 'mode'],
-                ignore_index=True,
-            )
+        if len(self.data) == 0:
+            return
+        inverse_id_col = self.data['relation_id'].map(
+            self.relation_registry.inverse_id)
+        inverse_df = pd.DataFrame({
+            'head': self.data['tail'],
+            # Internal inverse IDs have no public name (None), matching the
+            # previous row-wise construction.
+            'relation': inverse_id_col.map(
+                self.relation_registry.id_to_relation),
+            'tail': self.data['head'],
+            'mode': self.data['mode'],
+            'relation_id': inverse_id_col,
+            'is_inverse': True,
+        })
+        self.data = pd.concat([self.data, inverse_df], ignore_index=True)
+        self.data = self.data.drop_duplicates(
+            subset=['head', 'relation_id', 'tail', 'mode'],
+            ignore_index=True,
+        )
     
     # ==================== Candidate Pool Methods ====================
     

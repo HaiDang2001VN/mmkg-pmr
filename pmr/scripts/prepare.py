@@ -243,7 +243,9 @@ def main():
     print(f"  Splits:  Train={split_sizes['train']:,}  "
           f"Val={split_sizes['val']:,}  Test={split_sizes['test']:,}")
 
-    filter_map = dl.compute_filter_map()
+    # Split-aware truth filtering is built per split below; building an
+    # all-splits filter map here would cost a multi-GB pass over the
+    # materialized data and is never consumed.
     scope_filter_maps = dl.compute_filter_maps_by_scope()
 
     # ── 3. Evaluation candidate pools (artist2artist policy applied) ──────

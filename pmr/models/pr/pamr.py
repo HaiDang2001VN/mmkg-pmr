@@ -15,6 +15,7 @@ Supports four training objectives, selectable via YAML:
                      bidirectional prefix [CLS..t1], causal AR from r2)
 """
 
+import hashlib
 import math
 import os
 import pickle
@@ -277,7 +278,7 @@ class PAMRDataset(Dataset):
 
     def __init__(self, paths_csv, queries_csv, entity_to_id, relation_to_id,
                  num_workers=None, max_hops=5, relation_whitelist=None,
-                 num_relations=None):
+                 num_relations=None, registry_hash=None):
         import time
         t0 = time.perf_counter()
 
@@ -294,11 +295,20 @@ class PAMRDataset(Dataset):
                 relation_to_id[name] for name in relation_whitelist
             }
 
-        # ── Pickle cache (format, hop, and whitelist-aware) ─────────────
+        # ── Pickle cache (format, hop, whitelist, and registry-aware) ───
+        # The whitelist tag is a content hash, not a truncated name join, so
+        # different whitelists can never collide on the same cache file.
         wl_tag = ""
+        wl_hash = None
         if relation_whitelist:
-            wl_tag = "_wl_" + "_".join(sorted(relation_whitelist))[:120]
-        cache_path = paths_csv + wl_tag + f"_h{max_hops}.v3.samples.pkl"
+            wl_hash = hashlib.sha1(
+                ",".join(sorted(relation_whitelist)).encode("utf-8")
+            ).hexdigest()[:12]
+            wl_tag = "_wl_" + wl_hash
+        expected_num_relations = (
+            num_relations if num_relations is not None
+            else max(relation_to_id.values(), default=-1) + 1)
+        cache_path = paths_csv + wl_tag + f"_h{max_hops}.v4.samples.pkl"
         if os.path.exists(cache_path):
             cache_mtime = os.path.getmtime(cache_path)
             data_mtime = max(os.path.getmtime(paths_csv),
@@ -317,12 +327,28 @@ class PAMRDataset(Dataset):
                         f"PAMR cache {cache_path} lacks explicit candidate "
                         "tails. Regenerate paths and samples."
                     )
-                self.num_input_queries = cached["num_input_queries"]
-                self.num_queries_with_positive = cached[
-                    "num_queries_with_positive"]
-                print(f"    {len(self):,} samples "
-                      f"({time.perf_counter() - t0:.1f}s, cached)")
-                return
+                manifest = cached.get("manifest") or {}
+                expected_manifest = {
+                    "format": 4,
+                    "registry_hash": registry_hash,
+                    "num_relations": expected_num_relations,
+                    "max_hops": max_hops,
+                    "whitelist_hash": wl_hash,
+                }
+                mismatches = [
+                    key for key, value in expected_manifest.items()
+                    if manifest.get(key) != value
+                ]
+                if mismatches:
+                    print(f"    Cache manifest mismatch ({', '.join(mismatches)});"
+                          " rebuilding samples")
+                else:
+                    self.num_input_queries = cached["num_input_queries"]
+                    self.num_queries_with_positive = cached[
+                        "num_queries_with_positive"]
+                    print(f"    {len(self):,} samples "
+                          f"({time.perf_counter() - t0:.1f}s, cached)")
+                    return
 
         paths_df = pd.read_csv(paths_csv)
         queries_df = pd.read_csv(queries_csv)
@@ -417,6 +443,13 @@ class PAMRDataset(Dataset):
                     "samples": self.samples,
                     "num_input_queries": self.num_input_queries,
                     "num_queries_with_positive": self.num_queries_with_positive,
+                    "manifest": {
+                        "format": 4,
+                        "registry_hash": registry_hash,
+                        "num_relations": expected_num_relations,
+                        "max_hops": max_hops,
+                        "whitelist_hash": wl_hash,
+                    },
                 }, f, protocol=pickle.HIGHEST_PROTOCOL)
         except OSError:
             pass  # disk full or permission — non-fatal
@@ -521,7 +554,8 @@ class PAMRPairedDataset(Dataset):
     """
 
     def __init__(self, paths_csv, queries_csv, entity_to_id, relation_to_id,
-                 max_hops=5, relation_whitelist=None, num_relations=None):
+                 max_hops=5, relation_whitelist=None, num_relations=None,
+                 registry_hash=None):
         import time
         t0 = time.perf_counter()
         print("  Building paired-sampling dataset...")
@@ -529,7 +563,8 @@ class PAMRPairedDataset(Dataset):
         self.pamr_ds = PAMRDataset(paths_csv, queries_csv, entity_to_id,
                                     relation_to_id, max_hops=max_hops,
                                     relation_whitelist=relation_whitelist,
-                                    num_relations=num_relations)
+                                    num_relations=num_relations,
+                                    registry_hash=registry_hash)
         self.num_input_queries = self.pamr_ds.num_input_queries
         self.num_queries_with_positive = self.pamr_ds.num_queries_with_positive
 

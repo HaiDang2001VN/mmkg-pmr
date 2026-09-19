@@ -36,6 +36,7 @@ loss_mode: grouped_pairwise
 # Minimum candidate coverage required to accept a best-checkpoint (0 = off).
 min_eval_coverage: 0.0
 batch_size: 8
+eval_batch_size: 1024     # val/test loaders; large batches are safe (pad-only)
 lr: 0.01
 epochs: 50
 patience: 0
