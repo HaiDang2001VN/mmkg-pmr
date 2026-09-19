@@ -22,20 +22,33 @@ import numpy as np
 def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
                          exclude_relations=None, split=None, all_hops=None,
                          expected_queries=None, all_cand_ids=None,
-                         rel_for_qid=None):
+                         rel_for_qid=None, all_has_path=None,
+                         lf_no_path_policy="exclude"):
     """Single-pass MRR/Hits@K (strict + non-strict + length-first composite).
 
     When all_cand_ids is provided, probes are aggregated per
     (query_id, candidate_tail_id) with a max reduction before ranking, so the
     ranking unit is the candidate tail rather than the individual path.
 
-    rel_for_qid: optional {split_name: {query_id: relation_name}} lookup used
-    for excluded-relation filtering and per-relation grouping.
+    all_has_path: optional per-probe bool array. Candidate aggregation then
+    derives each candidate's path availability and hop count from its path
+    probes only (no-path probes never contribute hops).
+
+    lf_no_path_policy controls the length-first composite when no-path
+    candidates exist:
+      - "exclude": rank only candidates with a real path; queries whose
+        positives are all no-path are skipped from lf metrics and counted.
+      - "infinite": no-path candidates carry infinite hops, so all
+        path candidates rank before unreachable ones and ties among
+        unreachable candidates break by score.
+    When no hop metadata is supplied, lf metrics are omitted entirely.
     """
     scores = np.array(all_scores)
     labels = np.array(all_labels)
     qids_raw = np.array(all_query_ids)
     hops_raw = np.array(all_hops) if all_hops is not None else None
+    has_path_raw = (np.array(all_has_path, dtype=bool)
+                    if all_has_path is not None else None)
 
     if all_cand_ids is not None:
         cands_raw = np.array(all_cand_ids)
@@ -46,18 +59,34 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
         aggregated = []
         for (qid, _tail), idxs in sorted(groups.items()):
             gather = np.array(idxs, dtype=np.int64)
+            if hops_raw is not None:
+                if has_path_raw is not None:
+                    path_idx = gather[has_path_raw[gather]]
+                    hops_val = (int(np.min(hops_raw[path_idx]))
+                                if len(path_idx) else 0)
+                    has_path_val = bool(has_path_raw[gather].max())
+                else:
+                    hops_val = int(np.min(hops_raw[gather]))
+                    has_path_val = True
+            else:
+                hops_val = 0
+                has_path_val = bool(has_path_raw[gather].max()
+                                    if has_path_raw is not None else 1)
             aggregated.append({
                 "query_id": qid,
                 "score": float(np.max(scores[gather])),
                 "label": int(np.max(labels[gather])),
-                "hops": int(np.min(hops_raw[gather]))
-                if hops_raw is not None else 0,
+                "hops": hops_val,
+                "has_path": has_path_val,
             })
         scores = np.array([row["score"] for row in aggregated])
         labels = np.array([row["label"] for row in aggregated], dtype=float)
         qids_raw = np.array([row["query_id"] for row in aggregated])
-        hops_raw = (np.array([row["hops"] for row in aggregated])
-                    if hops_raw is not None else None)
+        if hops_raw is not None:
+            hops_raw = np.array([row["hops"] for row in aggregated])
+        if has_path_raw is not None:
+            has_path_raw = np.array([row["has_path"] for row in aggregated],
+                                    dtype=bool)
 
     candidate_queries = int(len(np.unique(qids_raw))) if len(qids_raw) else 0
 
@@ -79,6 +108,8 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
     l = labels[order]
     q = qids_raw[order]
     h = hops_raw[order] if hops_raw is not None else None
+    has_path_arr = (has_path_raw[order]
+                    if has_path_raw is not None else None)
 
     exclude_set = set(exclude_relations or [])
 
@@ -92,6 +123,7 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
     correct_lfns = 0
     skipped_no_pos = 0
     skipped_excluded = 0
+    lf_skipped_no_path_pos = 0
 
     # Per-relation accumulators
     per_rel_ranks = defaultdict(list)
@@ -155,30 +187,49 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
         if rank_ns == 1:
             correct_ns += 1
 
-        # Length-first composite ranking (sort by hops, break ties with score)
+        # Length-first composite ranking (sort by hops, break ties with
+        # score). With per-probe path availability the policy decides how
+        # no-path candidates enter the length ordering.
         if h is not None:
-            block_h = h[i:j]
-            shortest_pos_hops = np.min(block_h[pos_idx])
-            lf_pos_idx = pos_idx[block_h[pos_idx] == shortest_pos_hops]
-            lf_pos_score = np.max(block_s[lf_pos_idx])
-            pos_hops = shortest_pos_hops
-            # shorter path (smaller hops) + tie-breaking with score
-            rank_lf = int(np.sum(
-                (block_h < pos_hops) |
-                ((block_h == pos_hops) & (block_s > lf_pos_score))
-            )) + 1
-            rank_lfns = int(np.sum(
-                (block_h < pos_hops) |
-                ((block_h == pos_hops) & (block_s >= lf_pos_score))
-            ))
-            ranks_lf.append(rank_lf)
-            mrrs_lf.append(1.0 / rank_lf)
-            ranks_lfns.append(rank_lfns)
-            mrrs_lfns.append(1.0 / rank_lfns)
-            if rank_lf == 1:
-                correct_lf += 1
-            if rank_lfns == 1:
-                correct_lfns += 1
+            block_h = h[i:j].astype(float)
+            block_hp = (has_path_arr[i:j]
+                        if has_path_arr is not None
+                        else np.ones(j - i, dtype=bool))
+            if lf_no_path_policy == "infinite":
+                eff_h = np.where(block_hp, block_h, np.inf)
+                cand_idx = np.arange(j - i)
+            else:  # "exclude": only candidates with a real path
+                eff_h = block_h
+                cand_idx = np.where(block_hp)[0]
+            sel_h = eff_h[cand_idx]
+            sel_s = block_s[cand_idx]
+            sel_l = block_l[cand_idx]
+            sel_pos = np.where(sel_l == 1)[0]
+            if len(sel_pos) == 0:
+                # Every positive of this query is unreachable under the
+                # exclude policy; skip it from lf metrics.
+                lf_skipped_no_path_pos += 1
+            else:
+                pos_hops = sel_h[sel_pos].min()
+                pos_hop_mask = sel_h[sel_pos] == pos_hops
+                lf_pos_score = sel_s[sel_pos[pos_hop_mask]].max()
+                # shorter path (smaller hops) + tie-breaking with score
+                rank_lf = int(np.sum(
+                    (sel_h < pos_hops) |
+                    ((sel_h == pos_hops) & (sel_s > lf_pos_score))
+                )) + 1
+                rank_lfns = int(np.sum(
+                    (sel_h < pos_hops) |
+                    ((sel_h == pos_hops) & (sel_s >= lf_pos_score))
+                ))
+                ranks_lf.append(rank_lf)
+                mrrs_lf.append(1.0 / rank_lf)
+                ranks_lfns.append(rank_lfns)
+                mrrs_lfns.append(1.0 / rank_lfns)
+                if rank_lf == 1:
+                    correct_lf += 1
+                if rank_lfns == 1:
+                    correct_lfns += 1
 
         # Per-relation tracking
         if rel_name:
@@ -211,7 +262,7 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
             "skipped_excluded": skipped_excluded,
         }
 
-    has_lf = h is not None and len(ranks_lf) > 0
+    has_lf = h is not None
 
     hits = {}
     hits_ns = {}
@@ -221,8 +272,10 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
         hits[k] = float(np.mean(np.array(ranks) <= k))
         hits_ns[k] = float(np.mean(np.array(ranks_ns) <= k))
         if has_lf:
-            hits_lf[k] = float(np.mean(np.array(ranks_lf) <= k))
-            hits_lfns[k] = float(np.mean(np.array(ranks_lfns) <= k))
+            hits_lf[k] = (float(np.mean(np.array(ranks_lf) <= k))
+                          if ranks_lf else 0.0)
+            hits_lfns[k] = (float(np.mean(np.array(ranks_lfns) <= k))
+                            if ranks_lfns else 0.0)
 
     result = {
         "MRR": float(np.mean(mrrs)),
@@ -240,12 +293,17 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
         "skipped_excluded": skipped_excluded,
     }
     if has_lf:
-        result["MRR_lf"] = float(np.mean(mrrs_lf))
-        result["MRR_lfns"] = float(np.mean(mrrs_lfns))
+        result["MRR_lf"] = float(np.mean(mrrs_lf)) if mrrs_lf else 0.0
+        result["MRR_lfns"] = float(np.mean(mrrs_lfns)) if mrrs_lfns else 0.0
         result["Hits_lf"] = hits_lf
         result["Hits_lfns"] = hits_lfns
-        result["Accuracy_lf"] = correct_lf / n_queries
-        result["Accuracy_lfns"] = correct_lfns / n_queries
+        result["Accuracy_lf"] = (correct_lf / len(ranks_lf)
+                                 if ranks_lf else 0.0)
+        result["Accuracy_lfns"] = (correct_lfns / len(ranks_lfns)
+                                   if ranks_lfns else 0.0)
+        result["lf_num_queries"] = len(ranks_lf)
+        result["lf_skipped_no_path_positive"] = lf_skipped_no_path_pos
+        result["lf_policy"] = lf_no_path_policy
 
     # Build per-relation summary
     if per_rel_ranks:

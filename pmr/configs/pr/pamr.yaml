@@ -34,12 +34,18 @@ max_tokens: 13
 # (probe-level binary / link_prediction / reconstruction remain available).
 loss_mode: grouped_pairwise
 # Minimum candidate coverage required to accept a best-checkpoint (0 = off).
-min_eval_coverage: 0.0
+min_eval_coverage: 0.95
+patience: 5               # early stopping on val-MRR plateaus (0 = off)
+# Candidate-level losses receive complete per-query candidate groups.
+group_batches: true
+# Length-first composite handling of no-path candidates:
+# exclude (default) ranks only reachable positives; infinite ranks
+# no-path candidates last with score tie-breaks.
+lf_no_path_policy: exclude
 batch_size: 8
 eval_batch_size: 1024     # val/test loaders; large batches are safe (pad-only)
 lr: 0.01
 epochs: 50
-patience: 0
 eval_every: 1
 eval_max_batches: 999999  # full val/test
 

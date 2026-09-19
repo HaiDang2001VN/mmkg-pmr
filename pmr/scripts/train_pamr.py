@@ -24,6 +24,7 @@ from torch.utils.data import DataLoader
 
 from pmr.dataloader import KnowledgeGraphDataLoader
 from pmr.models.pr.pamr import (PAMR, PAMRDataset, PAMRPairedDataset,
+                                QueryGroupBatchSampler, build_query_group_indices,
                                 pamr_collate, pamr_paired_collate)
 from pmr.ranking import compute_rank_metrics
 from pmr import helpers, utils
@@ -314,8 +315,17 @@ def resolve_config(config_path_str):
     # Full val/test enumeration in train-sized batches wastes GPU capacity;
     # evaluation pads shorter paths only, so large eval batches are safe.
     eval_batch_size = int(config.get("eval_batch_size", 1024))
+    # Candidate-level losses see complete candidate groups per batch when
+    # group batching is enabled (recommended for grouped/listwise modes).
+    group_batches = bool(config.get("group_batches", True))
 
     max_hops = config.get("max_hops", 5)
+    lf_no_path_policy = config.get("lf_no_path_policy", "exclude")
+    if lf_no_path_policy not in ("exclude", "infinite"):
+        raise ValueError(
+            "lf_no_path_policy must be 'exclude' or 'infinite', got "
+            f"'{lf_no_path_policy}'"
+        )
 
     # ── Relation filter (optional) ─────────────────────────────────────
     rel_filter = config.get("relation_filter") or {}
@@ -359,15 +369,33 @@ def resolve_config(config_path_str):
         loader_batch_size = batch_size if split == "train" else eval_batch_size
         shuffle = (split == "train")
         collate_fn = pamr_paired_collate if split == "train" else pamr_collate
-        dl_obj = DataLoader(
-            ds,
-            batch_size=loader_batch_size,
-            shuffle=shuffle,
+        loader_kwargs = dict(
             collate_fn=collate_fn,
             num_workers=num_workers,
             pin_memory=(device.type == "cuda"),
-            drop_last=False,
         )
+        if split == "train" and group_batches:
+            group_indices = build_query_group_indices(ds)
+            batch_sampler = QueryGroupBatchSampler(group_indices,
+                                                   loader_batch_size)
+            dl_obj = DataLoader(
+                ds,
+                batch_sampler=batch_sampler,
+                shuffle=False,
+                drop_last=False,
+                **loader_kwargs,
+            )
+            print(f"    Group batching: {len(group_indices):,} query groups "
+                  f"→ {len(batch_sampler):,} batches "
+                  f"(batch_size={loader_batch_size})")
+        else:
+            dl_obj = DataLoader(
+                ds,
+                batch_size=loader_batch_size,
+                shuffle=shuffle,
+                drop_last=False,
+                **loader_kwargs,
+            )
         dataloaders[split] = dl_obj
 
     if "train" not in dataloaders:
@@ -547,6 +575,7 @@ def resolve_config(config_path_str):
             val_qids = []
             val_hops = []
             val_cands = []
+            val_has_path = []
             val_loss_sum = 0.0
             val_batches = 0
 
@@ -598,6 +627,8 @@ def resolve_config(config_path_str):
                         batch_hops.cpu().numpy().tolist())
                     val_cands.extend(
                         candidate_tail_ids.cpu().numpy().tolist())
+                    val_has_path.extend(
+                        batch_has_path.cpu().numpy().tolist())
 
             avg_val_loss = (val_loss_sum / val_batches
                             if val_batches > 0 else 0.0)
@@ -610,6 +641,8 @@ def resolve_config(config_path_str):
                     datasets["val"], "num_input_queries", None),
                 all_cand_ids=val_cands,
                 rel_for_qid=pamr_rel_map,
+                all_has_path=val_has_path,
+                lf_no_path_policy=lf_no_path_policy,
             )
             val_metrics["loss"] = round(avg_val_loss, 4)
 
@@ -756,6 +789,7 @@ def resolve_config(config_path_str):
         test_qids = []
         test_hops = []
         test_cands = []
+        test_has_path = []
 
         print(f"\n{'─' * 60}")
         print("  TEST EVALUATION")
@@ -810,6 +844,8 @@ def resolve_config(config_path_str):
                     batch_hops.cpu().numpy().tolist())
                 test_cands.extend(
                     candidate_tail_ids.cpu().numpy().tolist())
+                test_has_path.extend(
+                    batch_has_path.cpu().numpy().tolist())
 
         test_metrics = compute_rank_metrics(
             test_scores, test_labels, test_qids,
@@ -820,6 +856,8 @@ def resolve_config(config_path_str):
                 datasets["test"], "num_input_queries", None),
             all_cand_ids=test_cands,
             rel_for_qid=pamr_rel_map,
+            all_has_path=test_has_path,
+            lf_no_path_policy=lf_no_path_policy,
         )
 
         print(f"\n  Queries:  {test_metrics['num_queries']}")

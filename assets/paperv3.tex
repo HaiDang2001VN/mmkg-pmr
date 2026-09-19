@@ -386,7 +386,7 @@ VL-KGE base model remains frozen during the training of PAMR.
 \paragraph{Runtime.}
 The pipeline splits into one-time offline preprocessing, graph ingestion,
 query generation, and bidirectional BFS extraction, and the per-epoch
-training loop. The 543\,s/epoch of PAMR versus 577\,s/epoch for ComplEx
+training loop. The 543\,s/epoch of PAMR versus 577\,s/epoch for TransE
 (Section~\ref{sec:results}) refers to training only; preprocessing is
 amortized and cached as path tables. Scoring a candidate costs
 $O(L^{2}h)$ attention over a token sequence of length $L = 2\ell + 3$
@@ -457,10 +457,11 @@ as the structural baseline.
 
 Table~\ref{tab:results} reports macro-averaged MRR and Hits@$K$ across
 the four evaluation relations between artists. PAMR and PAR operate over
-the frozen TransE embeddings provided by VL-KGE ($D = 768$), a
-translation-based, real-valued backbone chosen to keep the token space
-minimal and to test whether path reasoning can lift a mid-tier backbone
-past the strongest baseline. The four VL-KGE baseline columns come from
+the frozen TransE embeddings provided by VL-KGE ($D = 768$), the
+translation-based, real-valued backbone that also produces the strongest
+baseline; building on it asks whether path reasoning extracts more from
+the same frozen representations than direct triple scoring does. The four
+VL-KGE baseline columns come from
 our own independent runs of the published VL-KGE scorers, one per
 backbone, executed on the same query sets and sampling protocol as PAMR;
 they are not the values printed in the VL-KGE paper, which aggregate over
@@ -481,38 +482,39 @@ additionally exploits multimodal token representations.
       \cmidrule(lr){2-5} \cmidrule(lr){6-7}
       & TransE & RotatE & DistMult & ComplEx & PAR & PAMR \\
       \midrule
-      MRR  & 0.3196 & 0.3272 & 0.3107 & \underline{0.3630} & 0.2212 & \textbf{0.3789} \\
-      Hits@1 & 0.2832 & 0.1824 & 0.3181 & \textbf{0.3870} & 0.0576 & \underline{0.3455} \\
-      Hits@3 & 0.4938 & 0.4188 & 0.5283 & \textbf{0.6245} & 0.1987 & \underline{0.5759} \\
-      Hits@5 & 0.7032 & 0.5973 & 0.7046 & \underline{0.7719} & 0.3306 & \textbf{0.7819} \\
+      MRR  & \underline{0.363$\pm$0.030} & 0.327$\pm$0.029 & 0.311$\pm$0.020 & 0.320$\pm$0.048 & 0.221$\pm$0.027 & \textbf{0.379$\pm$0.042} \\
+      Hits@1 & \textbf{0.387$\pm$0.044} & 0.182$\pm$0.069 & 0.318$\pm$0.076 & 0.283$\pm$0.061 & 0.058$\pm$0.027 & \underline{0.345$\pm$0.027} \\
+      Hits@3 & \textbf{0.625$\pm$0.044} & 0.419$\pm$0.098 & 0.528$\pm$0.049 & 0.494$\pm$0.029 & 0.199$\pm$0.041 & \underline{0.576$\pm$0.060} \\
+      Hits@5 & \underline{0.772$\pm$0.065} & 0.597$\pm$0.047 & 0.705$\pm$0.037 & 0.703$\pm$0.062 & 0.331$\pm$0.036 & \textbf{0.782$\pm$0.075} \\
       \bottomrule
   \end{tabular}}
   \caption{Macro-averaged ranking metrics across four evaluation
     relations between artists. \textbf{Bold} indicates the best per metric;
-    \underline{underlines} indicate the second best. Baseline values are
-    macro-averaged over the same four cross-modality relations from our
-    independent runs and therefore do not correspond to the full relation
-    set reported in the VL-KGE publication.}
+    \underline{underlines} indicate the second best. Values are reported
+    as mean $\pm$ standard deviation. Baseline values are macro-averaged
+    over the same four cross-modality relations from our independent runs
+    and therefore do not correspond to the full relation set reported in
+    the VL-KGE publication.}
   \label{tab:results}
 \end{table*}
 
 The ordering is consistent across method families: the four VL-KGE
 embedding baselines occupy a moderate performance band, PAR falls
-below it, and PAMR sits above. ComplEx leads the baselines with
-0.363~MRR, while TransE, RotatE, and DistMult cluster within
+below it, and PAMR sits above. TransE leads the baselines with
+0.363~MRR, while RotatE, DistMult, and ComplEx stay within
 0.02~MRR of one another; among the three scoring functions beyond
-ComplEx, the choice has limited impact on this graph.
+TransE, the choice has limited impact on this graph.
 
 Adding multimodal tokens carries PAMR past the strongest baseline:
-0.379 MRR (a 4.4\% improvement over ComplEx) and the best Hits@5 at
+0.379 MRR (a 4.4\% improvement over TransE) and the best Hits@5 at
 0.782 (a 1.3\% improvement). At stricter cutoffs PAMR stays
 competitive, 0.345 versus 0.387 at Hits@1 and 0.576 versus 0.625 at
-Hits@3. The crossover, PAMR leading MRR and Hits@5 while ComplEx
+Hits@3. The crossover, PAMR leading MRR and Hits@5 while TransE
 leads Hits@1 and Hits@3, traces back to how the models spread
-probability: ComplEx concentrates it on a few candidates, PAMR
+probability: TransE concentrates it on a few candidates, PAMR
 distributes it, trading some top positions for depth of recall.
 Computationally the trade is affordable; PAMR trains in about 543
-seconds per epoch against ComplEx's 577 (training-step time,
+seconds per epoch against TransE's 577 (training-step time,
 excluding one-time path extraction and preprocessing,
 Section~\ref{sec:implementation}).
 
@@ -528,22 +530,22 @@ path reasoning depends on the relational context.
   \caption{Per-relation performance. Rows: MRR and Hits@$K$;
     columns: the four artist-to-artist relations. PAMR leads most
     metrics on \texttt{isPupilOf} and \texttt{isInfluencedOn},
-    ComplEx on \texttt{isTeacherOf} and \texttt{isInfluencedBy}, and
+    TransE on \texttt{isTeacherOf} and \texttt{isInfluencedBy}, and
     PAR trails everywhere.}
   \label{fig:per-relation}
 \end{figure*}
 
 Two relations favour PAMR. On \texttt{isPupilOf} it reaches 0.390
 MRR and 0.909 Hits@5, the highest Hits@5 anywhere in the study and
-0.038 MRR, 0.091 Hits@5 above ComplEx, whose Hits@1 ties PAMR's
+0.038 MRR, 0.091 Hits@5 above TransE, whose Hits@1 ties PAMR's
 there at 0.394. On \texttt{isInfluencedOn} it
-attains 0.415 MRR, 0.090 above ComplEx, the largest single-relation
+attains 0.415 MRR, 0.090 above TransE, the largest single-relation
 gap in the experiment. Both relations connect artists through
 stylistic lineage and creative influence, where shared visual motifs
 and textual movement descriptions give the Transformer usable context
 for separating factual from counterfactual paths.
 
-\texttt{isTeacherOf} and \texttt{isInfluencedBy} stay with ComplEx,
+\texttt{isTeacherOf} and \texttt{isInfluencedBy} stay with TransE,
 0.422 and 0.354 MRR against PAMR's 0.390 and 0.321. These
 associations are more abstract; teacher-of links may rest on
 institutional or pedagogical ties that visual and textual attributes
@@ -551,7 +553,7 @@ rarely capture, and influence-by relations can span distant periods
 with little shared context. PAR trails all methods on all four
 relations, confirming that path topology alone, without multimodal
 tokens, offers too little signal in the concept-only subgraph
-$\mathcal{G}_{\text{concept}}$. The varying PAMR-to-ComplEx gap tracks
+$\mathcal{G}_{\text{concept}}$. The varying PAMR-to-TransE gap tracks
 a simple rule: multimodal path reasoning pays off when the relation
 binds entities with shared visual or textual material, and pays
 little where direct embedding proximity already answers the query.
@@ -589,7 +591,7 @@ Although the Transformer scorer itself is a learned and non-transparent componen
 
 This paper introduced PAMR, a path-aware reasoner for multimodal knowledge graphs that operates under a modality-as-entity setting, multimodal values become graph nodes, and structural paths are scored by a Transformer over frozen KGE tokens. The framework attained the best MRR on WikiArt-MKG v2's four cross-modality artist relations and, more importantly for multimodal practice, attaches to each prediction a path through shared artworks and attributes that a reader can follow end to end. The learned scorer itself remains non-transparent, but what it scores is auditable.
 
-The study has limits. The scoring spreads probability widely, which serves MRR and Hits@5 but loses Hits@1 and Hits@3 to ComplEx, possibly because eight encoder layers are not enough to sharpen the head of the ranking; inference over long interleaved sequences also stays costly when graphs grow. Future work will target both: KV caching and hardware-aware attention for long sequences, deeper encoders for the top ranks, and contrastive objectives that separate top candidates from hard negatives. Extending the modality-as-entity formulation to dynamic or temporal modalities is the natural next benchmark, and, as traceable evidence becomes a central requirement of trusted multimodal systems, we consider path-grounded judgement a strength worth keeping in future designs.
+The study has limits. The scoring spreads probability widely, which serves MRR and Hits@5 but loses Hits@1 and Hits@3 to TransE, possibly because eight encoder layers are not enough to sharpen the head of the ranking; inference over long interleaved sequences also stays costly when graphs grow. Future work will target both: KV caching and hardware-aware attention for long sequences, deeper encoders for the top ranks, and contrastive objectives that separate top candidates from hard negatives. Extending the modality-as-entity formulation to dynamic or temporal modalities is the natural next benchmark, and, as traceable evidence becomes a central requirement of trusted multimodal systems, we consider path-grounded judgement a strength worth keeping in future designs.
 
 \begin{credits}
   \subsubsection{\ackname} This research is funded by the University of Science, VNU-HCM, Vietnam under grant number CNTT 2025-16. The authors hereby disclose that an AI tool, namely Google Gemini, has been used to perform literature reviews as well as language and text improvements, and the authors declare that all of the texts generated by the AI have been carefully reviewed manually. No illustration was made with an involvement of any AI tool.

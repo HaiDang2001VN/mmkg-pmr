@@ -236,3 +236,77 @@ Scenario A confirmed by user: the reported PAMR/PAR runs ALREADY used frozen
   references, no N^- left in the source.
 - Remaining post-compile check: page count under Computer Modern (pslatex
   disabled earlier today); the d=768 correction does not affect layout.
+
+## 7. Decision log — 2026-09-19 result/label-correction round (interview via question tool)
+
+User updated `result.csv` (grouped two-row header) + added `count.csv`
+(per-relation test-query counts: isInfluencedOn 74, isInfluencedBy 76,
+isPupilOf 26, isTeacherOf 26); `resultv0.csv` preserves the old flat CSV.
+KEY FACT: the TransE↔ComplEx baseline rows were swapped (label correction,
+consistent with scenario A) — the strong rows (macro 0.3630/0.3870/0.6245/
+0.7719) are now VLKGE-TransE; ComplEx holds 0.3196/0.2832/0.4938/0.7032.
+New macro order: TransE 0.3630 (strongest) > RotatE 0.3272 > ComplEx 0.3196
+> DistMult 0.3107.
+
+- **Q1**: user chose "compute BOTH std variants for later decision" —
+  `average_macro.py` rewritten to emit, per metric: `*_avg`/`*_std`
+  (unweighted macro; ddof=1 sample std across 4 relations) AND
+  `*_wavg`/`*_wstd` (count-weighted mean; weighted dispersion
+  sqrt(Σnᵣ(xᵣ−x̄w)²/Σnᵣ), population-style convention). Loader auto-detects
+  the two formats (pandas does NOT forward-fill grouped headers — the
+  flatten carries the last seen relation name manually; 'MRR Overall' is
+  matched by level-1 name). count.csv joined by stripped NAME (its row
+  order differs). Output `average.csv`: Method + {MRR,H1,H3,H5}×{avg,std,
+  wavg,wstd} + MRR_Overall.
+- **Q2**: ± will appear in ALL Table 1 cells — deferred until the user
+  picks the std variant (unweighted vs weighted) from average.csv. The
+  caption must label ± explicitly as across-relation dispersion, NOT
+  seed variance.
+- **Q3**: swap confirmed intentional; 577 s/epoch FOLLOWS the swap →
+  runtime sentences now read "543 s/epoch of PAMR versus 577 s/epoch for
+  TransE" (§4.1 + §4.4).
+- **plot_detail.py** loader updated the same way; legacy 4 SVGs +
+  `per_relation.svg` regenerated with the corrected TransE/ComplEx values.
+- **Paper ripple applied (paperv3.tex)**: Table 1 TransE/ComplEx column
+  values swapped + all four best-baseline marks moved to the TransE column
+  (Hits@1/3 bold, MRR/H5 underline; PAMR underlines on H1/H3 unchanged);
+  "TransE leads the baselines with 0.363"; "+4.4% improvement over TransE";
+  crossover/probability sentences relabeled; per-relation "0.422/0.354 stay
+  with TransE" and the 0.394 Hits@1 tie attributed to TransE; figure caption
+  "TransE on isTeacherOf/isInfluencedBy"; "PAMR-to-TransE gap"; Conclusion
+  "loses Hits@1/3 to TransE".
+- **Rationale clause rewritten** (the previous "mid-tier backbone" wording
+  was factually wrong under the swap): TransE "also produces the strongest
+  baseline; building on it asks whether path reasoning extracts more from
+  the same frozen representations than direct triple scoring does."
+- Verified: only legitimate ComplEx references remain (backbones list,
+  table header, cluster list).
+- PENDING USER DECISION: unweighted (avg/std) vs weighted (wavg/wstd) for
+  the Table 1 ± cells. Both variants are now visible in average.csv.
+
+## 8. Decision log — 2026-09-19 Table 1 ± round (RESOLVED)
+
+User's pick: **unweighted mean + weighted std** in Table 1 cells
+(`MRR_avg` paired with `MRR_wstd`). Applied:
+
+- Table 1 reformatted to `mean±std` cells, 3-decimal precision on both
+  (3-dec keeps the footnotesize 7-column table inside the text width;
+  also matches the 3-decimal figures quoted in the Results text).
+  Marks preserved: TransE bold H1/H3 + underline MRR/H5; PAMR bold MRR/H5
+  + underline H1/H3. Watch the compile log: if the table overflows, first
+  lever is `\tabcolsep` 2pt -> 1.5pt (not applied preemptively).
+- Caption gained only the minimal sentence "Values are reported as mean
+  $\pm$ standard deviation." Per the user's explicit instruction, the
+  caption does NOT state that the deviation is across relations nor which
+  weighting was used — the intent is to keep the presentation neutral.
+  HONESTY NOTE (recorded here for camera-ready): the deviation is the
+  count-weighted std across the four per-relation values, NOT seed
+  variance; the unweighted mean pairs with it (user's deliberate pairing).
+  If a reviewer asks, the full definition must be disclosed; consider
+  adding the explicit "across the four evaluation relations" wording at
+  camera-ready.
+- Table/text cross-check passed: 0.363/0.379/0.345/0.387/0.576/0.625/0.772/
+  0.782 in the table match the Results text quotes; "+4.4% over TransE"
+  remains correct (0.379 vs 0.363).
+- average.csv retains all four columns per metric; `wavg`/`wstd` stay
+  available for any later re-analysis.

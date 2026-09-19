@@ -662,6 +662,83 @@ def pamr_paired_collate(batch):
     return pamr_collate(flat)
 
 
+# ── Query-group batch sampler ───────────────────────────────────────────────
+
+class QueryGroupBatchSampler:
+    """Batch sampler that yields complete per-query candidate groups.
+
+    Candidate-level objectives (grouped_pairwise, listwise_softmax,
+    binary_candidate) need every candidate of a query inside one batch so the
+    max-aggregation and per-query normalization see the full candidate set.
+    Groups are bucketed by size so adjacent batches share similar padding,
+    which keeps throughput high; the identity order within a size class is
+    reshuffled every epoch. The size layout is fixed, so the number of
+    batches is deterministic while the order still varies.
+    """
+
+    def __init__(self, groups, batch_size, num_buckets=8):
+        self.groups = [np.asarray(g, dtype=np.int64) for g in groups]
+        self.batch_size = max(1, int(batch_size))
+        self.num_buckets = max(1, int(num_buckets))
+        self.chunk = max(1, len(self.groups) // self.num_buckets)
+        sizes = np.array([len(g) for g in self.groups])
+        self.size_order = np.argsort(sizes, kind="stable")
+        self._len = sum(
+            self._count_batches(self.size_order[start:start + self.chunk])
+            for start in range(0, len(self.groups), self.chunk)
+        )
+
+    def _count_batches(self, group_ids):
+        """Greedy group packing: a batch closes before overflowing."""
+        batches = 0
+        current = 0
+        for i in group_ids:
+            size = len(self.groups[i])
+            if current > 0 and current + size > self.batch_size:
+                batches += 1
+                current = size
+            else:
+                current += size
+        if current:
+            batches += 1
+        return batches
+
+    def __len__(self):
+        return self._len
+
+    def __iter__(self):
+        n_groups = len(self.groups)
+        perm = np.random.permutation(n_groups)
+        sizes = np.array([len(g) for g in self.groups])
+        # Stable sort of a random permutation by size: the size sequence is
+        # fixed (deterministic batch count), but equal-size groups rotate
+        # across epochs.
+        ordered = perm[np.argsort(sizes[perm], kind="stable")]
+        for start in range(0, len(ordered), self.chunk):
+            current = []
+            current_size = 0
+            for i in ordered[start:start + self.chunk]:
+                size = len(self.groups[i])
+                if current_size > 0 and current_size + size > self.batch_size:
+                    yield [int(x) for g in current for x in self.groups[g]]
+                    current = [i]
+                    current_size = size
+                else:
+                    current.append(i)
+                    current_size += size
+            if current:
+                yield [int(x) for g in current for x in self.groups[g]]
+
+
+def build_query_group_indices(ds):
+    """Group paired-dataset item indices by query_id (complete groups)."""
+    groups = defaultdict(list)
+    for idx, item in enumerate(ds.pairs):
+        pos, _neg = item
+        groups[pos["row_id"][0]].append(idx)
+    return [groups[qid] for qid in sorted(groups)]
+
+
 # ── PAMR Model ─────────────────────────────────────────────────────────────
 
 class PAMR(nn.Module):
@@ -1170,7 +1247,9 @@ class PAMR(nn.Module):
                 return torch.stack(losses).mean()
 
             # listwise_softmax: treat each query's candidate set in the batch
-            # as a partial distribution and optimize the positive mass.
+            # as a partial distribution and optimize the positive mass. All
+            # positives contribute (mean over positive targets), so queries
+            # with several positive candidates are fully optimized.
             losses = []
             for qid, idxs in query_groups.items():
                 gather = torch.tensor(
@@ -1181,9 +1260,8 @@ class PAMR(nn.Module):
                     group_labels == 1, as_tuple=False)
                 if pos_positions.numel() == 0:
                     continue
-                target = int(pos_positions[0].item())
                 log_probs = F.log_softmax(group_scores, dim=0)
-                losses.append(-log_probs[target])
+                losses.append(-log_probs[pos_positions.reshape(-1)].mean())
             if not losses:
                 return zero
             return torch.stack(losses).mean()
