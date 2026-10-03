@@ -251,3 +251,60 @@ Diagnose `reports/<job>.out/.err` before resubmitting; jobs must be self-diagnos
 - TWO degeneration loops hit this session (garbage repetition). On any recurrence: STOP, re-read the last real tool output, restart from the todo list — never keep generating.
 - Verify transforms with ast.parse gates BEFORE accepting writes; locate anchors by content search, never fixed offsets.
 - Always `git status --short` before any add; stage selectively (the Phase 0 commit mixed pre-existing tree changes — described honestly in its message, but avoid next time).
+
+---
+
+## 5. Reference mapping — file → location index
+
+Purpose: rediscover exact content without re-grepping. Anchors verified 2026-10-03; re-check after future edits.
+
+### 5.1 Code + configs (local repo `src/`)
+
+| Relevant content | File | Anchor |
+|---|---|---|
+| main() body (training loop), resolve_config, alloc-conf, __main__ | `pamr/scripts/train_pamr.py` | resolve_config 106–117; `def main():` 118–990; `PYTORCH_CUDA_ALLOC_CONF` 121 (first lines of main); loader + scope validation 255–~296; fine-tune gate + prints 298–~320; optimizer AdamW 487; test_scores.csv writer (query_id, candidate_tail_id, score, is_positive) 916–~922; metrics json keys (fine_tune_backbone, lf_temperature) 963–964; `__main__` 992–994 |
+| Freeze/fine-tune + temperature + score contract | `pamr/models/pr/pamr.py` | class docstring (score contract ŷ = g + Δ) ~630–648 (PAMR class def); `__init__` freeze gate + comment 670–678 (signature defaults at 655); auto-detect D/is_rotate ~681–690; no-path residual emb (per-relation, zero-init) 764–771; `recon_gate` 771; criterion switch ~781–789; `train()` eval-override 792–797; `_reset_parameters` zero-init block 797–842 (re-zero of residual/recon_gate 824–829); forward def 1011; vlkge no_grad gate 1036–1041; no-path offset 1044–1050; token build uses `vlkge.get_entity_representations` (NOT no_grad) 836–857; listwise temperature in compute_loss (see "lf_temperature" block); `_aggregate_candidates` + QueryGroupBatchSampler 558–650 |
+| B1 leakage-verification runner | `pamr/scripts/verify_paths.py` | docstring/usage 1–32; `_iter_graph_rows` 43–47; `check_meta` (nested registry-hash comparison + per-key loop) 50–~108; `build_exclusion_index` (inverse_map from paths-meta manifest) 111–~180; `check_scope` (A) 183–~200; `load_probe_index` ~205–222; `check_own_edge_and_completeness` (B + sample contract + probe completeness) 224–~292; `check_candidate_identity` (C; prepared-queries cross-check) 294–~371; `main` 373–437 (file 438 lines) |
+| Micro-test worlds | `/var/folders/0q/3t_tkstj62xbk4dzvv3wt8300000gn/T/opencode/p0test/test_verify_paths.py` | 5 worlds (clean/own-edge/scope-leak/completeness/identity) + real-shape metas — rerun from `src/` via graphml env |
+| PAMR edit micro-test | `/var/folders/0q/3t_tkstj62xbk4dzvv3wt8300000gn/T/opencode/p0test/test_pamr_edits.py` | freeze default / fine-tune split / backward reach / temperature |
+| Registry manifest shape (why the nested-hash fix matters) | `pamr/relation_registry.py` | `_build_manifest` 130–145 (inverse_relation_id str→int); `to_dict` adds registry_hash inside 162–165; `inverse_id` 150–154 |
+| Worker v2 launcher + artifact shapes | `pamr/models/pr/preprocess.py` | module root paths 29–32 (comment pmr/ stale; paths correct); worker-launcher args 114–131; scope table + defensive default 193–217; mask/uniform-flag reads 219–226; output run dir 228–233; graph-scoped writer (graph_{split}.csv header `u,v,u_type,v_type,edge_type,reverse_edge_type`) ~439–455; graph_meta (top-level relation_registry_hash) ~457–470; probe-queries writer (row_index, query_id, head_id, tail_id, query_relation_id, inverse_query_relation_id — NO is_positive) 471–484; entity/relation mapping writers ~344–352; merge keyed row_meta + emit contract 518–620; completeness audit call 620; paths_meta (manifest; NO top-level hash) 622–638 |
+| VL-KGE scoring | `pamr/models/vlkge/score.py` | self-contained vs reference modes 82–106; split loop + rel filter 317–344; scores CSV writer (`query_id,score,is_positive`) 366–373 |
+| KGE training entry | `pamr/scripts/train_embedding.py` | REPO_ROOT 21; --embedding_scope 197; scope modes table ~355–366; oracle warning 366–370; checkpoint metadata (embedding_scope, registry manifest, mapping hashes) ~485–492; save_path handling 262–263, 438–439; CLI per-model floor values (margin 12, lr 0.1, epochs 20, batch 512) |
+| Registry acceptance | `pamr/scripts/check_registry.py` | main 46+, `--expect-raw/--expect-total` |
+| PAMR prod config (locked) | `pamr/configs/pr/pamr.yaml` | backbone repoint + protocol comments 18–31; gates (min_eval_coverage 0.95, patience 5, group_batches) ~36–44; relation_filter train_eval 52–59; seed 42 |
+| Backbone + struct configs | `pamr/configs/wikiart_mkg_v2/` | transe_clip.yaml = PAMR backbone source (../data relative paths 4–7); transe_struct.yaml (PAR backbone: use_visual/use_textual false); complex/distmult/rotate_clip.yaml = baselines; " 2" duplicates = user's, DO NOT EDIT |
+| Ablations | `pamr/configs/pr/pamr_{depth12,cls,finetune,lf_temp,seed1,par,hop3}.yaml` + `wikiart_mkg_v2_paths_h3.yaml` | each = single-diff from pamr.yaml (depth 12; readout cls; fine_tune_backbone true; listwise_softmax + lf_temperature 0.1; seed 1; struct backbone; max_hops 3 + max_tokens 9 + h3 paths_dir) |
+| Eval chain | `pamr/configs/eval/wikiart_mkg_v2_{neg_sampling,score,score_complex,score_distmult,score_rotate}.yaml` | K: train 1 / val 10 / test 10; rejection; score chain per model → `<model>_wikiart_mkg_v2_train.pt` |
+| Package identity | `pyproject.toml` (entry points pamr-train/pamr-train-pamr; package-data), `requirements.txt` (floors torch>=2.6 etc.) | |
+| Registers | `memory/bugs.md` (this file), `memory/wip.md` (paper + plan; §16 compaction snapshot, §17 integral round, §18 Phase 0, §19 defect round + FIT pointer) | |
+| Paper source of truth | `assets/paperv7.tex` (ACTIVE), `assets/analysis/integral.md` §7 (notation authority), `assets/analysis/{review,n-mmkg,overview}.md`, `assets/{result,average,count}.csv` (old values per user: ignore, freshness comes from regen) | |
+
+### 5.2 Workstation artifact provenance (evidence for the register's facts)
+
+| Fact | Artifact (local GDrive sync) |
+|---|---|
+| Reported backbone = ComplEx (scenario A wrong) | `checkpoints/preproc/wikiart_mkg_v2/full/pamr/pamr_training_metrics.json` (`vlkge_checkpoint` = complex_wikiart_mkg_v2.pt; best_epoch 7; wall 448 s; peak GPU 6 GB) |
+| d_model=1536 dims echo (all 22 runs) | `full/pamr/2026062*/train.log` (`VLKGE dims: entity=768, rel=1536 → d_model=1536`) |
+| Old train/val/test probe shapes + old-test-eval degeneracy (MRR 1.0000 on 235 queries) | `full/pamr/20260629_071706/train.log` (head: paired shapes; tail: test 235/1.0000) |
+| Table-1 source values = strict/ns pairs; PAR/PAMR rows' sources | `full/vlkge/comparison_table.{csv,tex}`; PAR ≡ `full/pamr/pathlen/all/pathlen_last/metrics.json` TEST per-relation values |
+| Baseline score sets | `full/vlkge/{TransE,ComplEx,DistMult,RotatE}/{full,artist}/` (scores CSVs + metrics.json + logs) |
+| Old checkpoint set | root `checkpoints/vlkge/wikiart_mkg_v2/`: `<model>_wikiart_mkg_v2.pt` (~2.6 GB) + `_artist` (~15 MB) variants — all contract-invalid, kept as history |
+
+### 5.3 FIT server (Phase A onward targets)
+
+| Topic | Path (on FIT, ssh FIT = 172.29.74.81, user hlhdang) |
+|---|---|
+| Authority files | `~/AGENTS.md` (rules), `/media02/hlhdang/README.md` (map), `~/admin_note.txt` |
+| Env system | `/media02/hlhdang/scripts/{make_uv_env.sh,uvenv.sh,registry.py,install_uv.sh}`; catalog `uvenvs/registry.json`; pinned uv `tools/uv/uv` (v0.12.19); bootstrap `source tools/uvenv.sh` |
+| Proven sbatch patterns | `projects/ejepwm/slurm/{main,smoke,probe_gpu01,build}.sbatch` (gpu:1/12cpu/mem explicit, USR1+requeue, trap EXIT, ACCEPTANCE lines) |
+| Env-mint evidence | `reports/{make_t260,uv_lock_*,adaptive_lock*}.log` (py3.10 downgrade hazards) |
+| Campaign destinations (Phase A) | tree → `/media02/hlhdang/projects/pamr`; data → `projects/pamr/data/`; venv → `uvenvs/t260cu126-py312-pamr`; scratch → /dev/shm per job; artifacts sync back → `projects/pamr/checkpoints/…` |
+| Local SSH anchor | `~/.ssh/config` Host FIT (key `id_rsa_fit`) |
+
+### 5.4 Rediscovery workflow (future turns)
+
+1. Compaction recovery: read `memory/bugs.md` §1 (Phase 0 audit subsection) → §4 (FIT handoff) → this mapping; only then `memory/wip.md` §16–§19 for paper-plan context.
+2. Before touching any config: re-check the anchor row in 5.1 (line numbers may shift after edits — re-grep the anchor string, never trust stale offsets).
+3. Before any transform: ast-gate + content-search anchors (§4 lessons).
+4. Fact conflicts: artifact evidence (5.2) beats register prose; user decisions beat both.
