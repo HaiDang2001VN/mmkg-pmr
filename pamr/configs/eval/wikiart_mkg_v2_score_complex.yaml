@@ -1,0 +1,19 @@
+# VL-KGE baseline scoring — Complex (train scope)
+# Negative-sampling-based evaluation — scoring config
+# Loads a trained VL-KGE model and scores prepared queries.
+#
+# output_dir is NOT duplicated here — scores are written to
+# prepare_cfg.output_dir alongside the query CSVs.
+#
+# Usage:
+#   python -m pamr.models.vlkge.score --config configs/eval/wikiart_mkg_v2_score.yaml
+
+# --- Referenced configs (no path duplication) ---
+prepare_config: configs/eval/wikiart_mkg_v2_neg_sampling.yaml
+model_config: configs/wikiart_mkg_v2/complex_clip.yaml
+
+# --- Score-specific settings ---
+checkpoint_path: ../checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2_train.pt
+
+batch_size: 2048
+seed: 42

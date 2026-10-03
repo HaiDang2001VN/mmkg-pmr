@@ -1,0 +1,8 @@
+# Evaluate path-length baseline — all 20 relations.
+#
+# Usage:
+#   python -m pamr.scripts.evaluate --config configs/eval/pathlen_all_eval.yaml
+prepare_config: pathlen_eval_prep.yaml
+scores_dir: /workspace/checkpoints/preproc/wikiart_mkg_v2/full/pamr/pathlen/all/pathlen_first/
+top_k: [1, 3, 5, 10]
+seed: 42

@@ -1,0 +1,26 @@
+# PAMR Path-Length Baseline Scorer config
+#
+# Scores paths by hops alone: score = -hops + offset.
+# The offset applies only to positive samples per the tie-breaking mode.
+#
+# Usage:
+#   python -m pamr.models.pr.score --config configs/pr/pamr_score.yaml
+
+# Data sources
+paths_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/pamr/
+queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/
+
+# Output
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/pamr/pathlen/artist/pathlen_first/
+
+# Tie-breaking: first | middle | last
+tie_break: first
+
+# Optional: filter to specific relations only
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf

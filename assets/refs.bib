@@ -98,21 +98,17 @@
 }
 
 @inproceedings{liu2019mmkg,
-  title     = {{MMKG}: Multi-Modal Knowledge Graphs},
-  author    = {Liu, Ye and Li, Hui and Garcia-Duran, Alvaro and Nie, Mathias and Padia, Diego and Bogdanov, Antony},
-  booktitle = {Extended Semantic Web Conference},
+  title     = {{MMKG}: Multi-modal Knowledge Graphs},
+  author    = {Liu, Ye and Li, Hui and Garc{\'\i}a-Dur{\'a}n, Alberto and Niepert, Mathias and O{\~n}oro-Rubio, Daniel and Rosenblum, David S.},
+  booktitle = {The Semantic Web: 16th International Conference, ESWC 2019, Proceedings},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {11503},
   pages     = {459--474},
   year      = {2019},
   publisher = {Springer},
   doi       = {10.1007/978-3-030-21348-0_30}
 }
-
-@inproceedings{wang2021rsme,
-  title     = {{RSME}: Relation-Symmetric Multi-Modal Knowledge Graph Embedding},
-  author    = {Wang, Peng and Wang, Jialian and Guo, Li and others},
-  booktitle = {Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing},
-  year      = {2021}
-}
+% fixed 2026-09-20 (verify.md comparison round): Crossref DOI record shows SIX real authors — "Padia, Diego" and "Bogdanov, Antony" were fabricated, "Alvaro"/"Nie, Mathias" mangled; Gemini's 4-author list itself omitted the real Li Hui and Rosenblum David S.; series/volume per Crossref container + ESWC LNCS 11503
 
 @inproceedings{xie2017image,
   title     = {Image-embodied Knowledge Representation Learning},
@@ -123,36 +119,33 @@
   doi       = {10.24963/ijcai.2017/438}
 }
 
-@article{wang2019transae,
-  title   = {{TransAE}: A Translation-based Knowledge Graph Embedding Model with Auto-Encoders},
-  author  = {Wang, Zhipeng and Li, Xiang and others},
-  journal = {arXiv preprint arXiv:1910.06604},
-  year    = {2019}
-}
-
 @inproceedings{tang2020orthogonal,
   title     = {Orthogonal Relation Transforms with Graph Context Modeling for Knowledge Graph Embedding},
-  author    = {Tang, Yun and Huang, Jing and Ding, Guanghui and Zhao, Kyunghao and others},
+  author    = {Tang, Yun and Huang, Jing and Wang, Guangtao and He, Xiaodong and Zhou, Bowen},
   booktitle = {Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics},
   pages     = {2713--2722},
   year      = {2020},
   doi       = {10.18653/v1/2020.acl-main.241}
 }
+% fixed 2026-09-20: author list was wrong AND truncated ("...Ding, Guanghui and Zhao, Kyunghao and others"); real OTKGE roster (arXiv:1911.04910, ACL 2020): Tang/Huang/Wang/He/Zhou
 
 @inproceedings{xu2022multimodal,
-  title     = {Multimodal Relation-enhanced Negative Sampling for Knowledge Graph Completion},
-  author    = {Xu, Y and others},
+  title     = {Relation-enhanced Negative Sampling for Multimodal Knowledge Graph Completion},
+  author    = {Xu, Derong and Xu, Tong and Wu, Shiwei and Zhou, Jingbo and Chen, Enhong},
   booktitle = {Proceedings of the 30th ACM International Conference on Multimedia},
-  year      = {2022}
+  year      = {2022},
+  doi       = {10.1145/3503161.3548388}
 }
+% fixed 2026-09-20: real title order + full 5-author list verified via Crossref (was "Xu, Y and others"; wrong title order)
 
 @inproceedings{chen2022mkgformer,
-  title     = {{MKGformer}: Multimodal Knowledge Graph Completion with Transformers},
-  author    = {Chen, Xiang and others},
+  title     = {Hybrid Transformer with Multi-level Fusion for Multimodal Knowledge Graph Completion},
+  author    = {Chen, Xiang and Zhang, Ningyu and Li, Lei and Deng, Shumin and Tan, Chuanqi and Xu, Changliang and Huang, Fei and Si, Luo and Chen, Huajun},
   booktitle = {Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval},
   year      = {2022},
-  doi       = {10.1145/3477495.3532042}
+  doi       = {10.1145/3477495.3531992}
 }
+% fixed 2026-09-20: real title, real DOI (was .3532042 — wrong), full 9-author list verified via arXiv:2205.02357 (was "Chen, Xiang and others")
 
 @inproceedings{zhao2022mose,
   title     = {{M}o{SE}: Modality Split and Ensemble for Multimodal Knowledge Graph Completion},
@@ -186,18 +179,20 @@
 
 @article{wang2019coke,
   title   = {{CoKE}: Contextualized Knowledge Graph Embedding},
-  author  = {Wang, Quan and Huang, Pingping and Wang, Haifeng and others},
+  author  = {Wang, Quan and Huang, Pingping and Wang, Haifeng and Dai, Songtai and Jiang, Wenbin and Liu, Jing and Lyu, Yajuan and Zhu, Yong and Wu, Hua},
   journal = {arXiv preprint arXiv:1911.02168},
   year    = {2019}
 }
+% fixed 2026-09-20: full 9-author list verified via arXiv:1911.02168 (was "and others")
 
 @inproceedings{wang2021star,
-  title     = {{StAR}: Structure-Augmented Text Representation for Knowledge Graph Completion},
-  author    = {Wang, Bo and others},
+  title     = {Structure-Augmented Text Representation Learning for Efficient Knowledge Graph Completion},
+  author    = {Wang, Bo and Shen, Tao and Long, Guodong and Zhou, Tianyi and Wang, Ying and Chang, Yi},
   booktitle = {Proceedings of the Web Conference 2021},
   year      = {2021},
-  doi       = {10.1145/3442381.3449830}
+  doi       = {10.1145/3442381.3450043}
 }
+% fixed 2026-09-20: real title + full 6-author list verified via Crossref (was "Wang, Bo and others"; truncated title)
 
 @article{yao2019kg,
   title   = {{KG-BERT}: BERT for Knowledge Graph Completion},
@@ -213,12 +208,15 @@
   year      = {2022}
 }
 
-@article{zhu2022genkgc,
-  title   = {{GenKGC}: Generative Knowledge Graph Completion with Pre-trained Language Models},
-  author  = {Zhu, Y and others},
-  journal = {arXiv preprint arXiv:2210.02115},
-  year    = {2022}
+@inproceedings{zhu2022genkgc,
+  title     = {From Discrimination to Generation: Knowledge Graph Completion with Generative Transformer},
+  author    = {Xie, Xin and Zhang, Ningyu and Li, Zhoubo and Deng, Shumin and Chen, Hui and Xiong, Feiyu and Chen, Mosha and Chen, Huajun},
+  booktitle = {Proceedings of the ACM Web Conference 2022},
+  pages     = {1532--1542},
+  year      = {2022},
+  doi       = {10.1145/3487553.3524238}
 }
+% fixed 2026-09-20: entry was fully fabricated ("Zhu, Y and others", fake arXiv 2210.02115 = astro paper); real GenKGC = WWW 2022 (arXiv:2202.02113), verified via arXiv API
 
 @inproceedings{liu2022mask,
   title     = {Mask and Reason: Pre-Training Knowledge Graph Transformers for Complex Logical Queries},
@@ -229,12 +227,13 @@
   doi       = {10.1145/3534678.3539472}
 }
 
-@article{chen2023csprompter,
-  title   = {{CSPrompter}: Consistent Structure Prompter for Knowledge Graph Reasoning},
-  author  = {Chen, J and others},
-  journal = {arXiv preprint arXiv:2303.03922},
-  year    = {2023}
+@inproceedings{zhang2023kgtransformer,
+  title     = {Structure Pretraining and Prompt Tuning for Knowledge Graph Transfer},
+  author    = {Zhang, Wen and Zhu, Yushan and Chen, Mingyang and Geng, Yuxia and Huang, Yufeng and Xu, Yajing and Song, Wenting and Chen, Huajun},
+  booktitle = {Proceedings of the ACM Web Conference 2023},
+  year      = {2023}
 }
+% replaces the fabricated "CSPrompter" entry 2026-09-20 (its arXiv ID 2303.03922 belongs to THIS paper); WWW 2023 verified via arXiv comment; no DOI recorded to avoid guessing
 
 @inproceedings{trouillon2016complex,
   title        = {Complex Embeddings for Simple Link Prediction},
@@ -255,11 +254,13 @@
 
 @inproceedings{zhang2019quaternion,
   title     = {Quaternion Knowledge Graph Embeddings},
-  author    = {Zhang, Shuai and Tay, Yi and Linayao, Aston and others},
+  author    = {Zhang, Shuai and Tay, Yi and Yao, Lina and Liu, Qi},
   booktitle = {Advances in Neural Information Processing Systems},
   volume    = {32},
+  pages     = {2735--2745},
   year      = {2019}
 }
+% fixed 2026-09-20 (verify.md comparison): the mangled "Linayao, Aston" restored to the real NeurIPS 2019 roster Zhang/Tay/Yao/Liu (uncited leftover entry, hygiene only)
 
 @inproceedings{zhang2020learning,
   title     = {Learning Hierarchy-Aware Knowledge Graph Embeddings for Link Prediction},
@@ -383,8 +384,10 @@
   author    = {Efthymiou, Athanasios and Rudinac, Stevan and Kackovic, Monika and Wijnberg, Nachoem and Worring, Marcel},
   booktitle = {Proceedings of the ACM Web Conference 2026 (WWW '26)},
   year      = {2026},
+  publisher = {ACM},
   doi       = {10.1145/3774904.3792677}
 }
+% 2026-09-20: publisher field added per verify.md comparison (Gemini's version matches; DOI resolves via Crossref)
 
 @article{niu2025survey,
   title   = {A Survey of Task-Oriented Knowledge Graph Reasoning: Status, Applications, and Prospects},
@@ -396,9 +399,35 @@
 @article{liang2024survey,
   title   = {A Survey of Knowledge Graph Reasoning on Graph Types: Static, Dynamic, and Multi-Modal},
   author  = {Liang, Ke and Meng, Lingyuan and Liu, Meng and Liu, Yue and Tu, Wenxuan and Wang, Siwei and Zhou, Sihang and Liu, Xinwang and Sun, Fuchun and He, Kunlun},
-  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)},
-  year    = {2024}
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  volume  = {46},
+  number  = {12},
+  pages   = {9456--9478},
+  year    = {2024},
+  doi     = {10.1109/TPAMI.2024.3417451}
 }
+% updated 2026-09-20: volume/number/pages/doi added per n-mmkg.md; full author list kept
+
+@article{zhu2024multimodal,
+  title   = {Multi-Modal Knowledge Graph Construction and Application: A Survey},
+  author  = {Zhu, Xiangru and Li, Zelong and Wang, Xiaohan and Wang, Xiting and Liang, Xun and Huang, Yichao and Huang, Songfang and Wei, Feng and Wang, Jun},
+  journal = {IEEE Transactions on Knowledge and Data Engineering},
+  volume  = {36},
+  number  = {2},
+  pages   = {715--735},
+  year    = {2024},
+  doi     = {10.1109/TKDE.2022.3224228}
+}
+
+@inproceedings{wang2020richpedia,
+  title     = {Richpedia: A Large-Scale, Comprehensive Multi-Modal Knowledge Graph},
+  author    = {Wang, Meng and Wang, Haofen and Qi, Guilin and Sheng, Qiang},
+  booktitle = {Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages     = {1597--1600},
+  year      = {2020},
+  doi       = {10.1145/3397271.3401314}
+}
+% appended 2026-09-20 per assets/n-mmkg.md (N-MMKG taxonomy round)
 
 @conference{icaart26,
   author       = {Dang Huynh and Minh Khau and Thanh Le and Bac Le},

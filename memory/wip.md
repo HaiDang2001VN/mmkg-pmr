@@ -1,8 +1,15 @@
-# WIP — PAMR paper status (paperv3 / SOICT 2026), refactored 2026-09-16
+# WIP — PAMR paper status (paperv4 SOICT submission / paperv3 fallback), updated 2026-09-20
 
-Current draft: `mmkg-pmr/assets/paperv3.tex` — SOICT 2026 submission
-(Springer CCIS, ≤12 pages excl. refs, single-blind, deadline 2026-09-20,
-Track: Multimodal Intelligence). Backup: `assets/paper.tex` (Group A edits);
+NOTE: `review.md` and analysis files now live in `assets/analysis/`
+(`review.md`, `n-mmkg.md`, `overview.md`) — earlier references to
+`assets/review.md` / `assets/n-mmkg.md` resolve there after the user's
+reorganization.
+
+Current draft: `mmkg-pmr/assets/paperv4.tex` — SOICT 2026 submission
+(runtime/scalability analysis replaces per-relation analysis).
+Fallback: `assets/paperv3.tex` (keeps the Per-Relation Analysis +
+merged per-relation figure; use if the runtime section must be pulled).
+Backup: `assets/paper.tex` (Group A edits);
 history: `paperv0/1/2.tex`. Issue numbers #1–#14 refer to `assets/review.md`
 (original venue — rejected 2026-09, no rebuttal needed; the issues now guide
 future-venue hardening only).
@@ -90,9 +97,12 @@ original venue is rejected, so no rebuttal work remains.)
   (WN9-IMG, DB15K) each multimodal feature binds to a single entity, so
   lifting it into a node yields a degree-1 leaf that mediates no path;
   modality-as-entity reasoning would be vacuous there; porting PAMR is a
-  reformulation, not a port. The actual GNN adaptation remains future work;
-  optional websearch to double-check the "only public modality-as-entity
-  benchmark" claim before camera-ready.
+  reformulation, not a port. 2026-09-20 N-MMKG round: §2.2 now names
+  Richpedia explicitly (studies centre on multimodal alignment, not link
+  prediction) and DB15K degree-one leaves — the "only benchmark" claim is
+  now justified by the alignment-vs-link-prediction split rather than an
+  unsupported absence claim; websearch double-check no longer required for
+  this point. The actual GNN adaptation remains future work.
 - **[Original] #6 — Sampling rigor.** Resolved sub-part: candidate pool
   formalized (see #9). Unresolved sub-parts: (a) multi-shortest-path
   selection rule still undefined in the paper ("the shortest paths" plural,
@@ -108,28 +118,29 @@ original venue is rejected, so no rebuttal work remains.)
   evaluated under the same 10-negative protocol. Residual: none.
 - **[Original] #11 — Overstated novelty/interpretability.** "Pioneer" removed;
   non-transparency acknowledged in contribution 3, case study, conclusion;
-  abstract softened ("every prediction stays traceable"). Residuals: reviewer's
+  abstract softened ("every answer stays traceable"). Residuals: reviewer's
   attention-weight visualization not produced ("auditable paths" framing is
   the substitute); abstract carries no scorer caveat (defensible, minor risk).
 - **[Original] #12 — Formal semantic grounding.** Compact formalization done
-  as agreed (τ typing, μ modality label, 𝒢* transformation, three structural
-  constraints). Residual: no schema/RDF-standards mapping — accepted
+  as agreed (τ typing, μ modality label, 𝒢* transformation, FOUR structural
+  constraints — (iv) the modality-node sharing property added in the
+  elaboration round). Residual: no schema/RDF-standards mapping — accepted
   tradeoff for the page budget; revisit for a journal version.
 - **[Original] #14 — Runtime/scalability.** Pipeline decomposition,
-  training-only scoping of 543/577 s, O(L²h) attention cost, memory
-  dominance, inference-latency scaling all present (§4.1). Residual: no
-  measured end-to-end wall-clock (BFS/preprocessing seconds) — read from
-  logs or one measurement run post-deadline.
+  O(L²h) attention cost, memory dominance, inference-latency scaling present;
+  BFS stage MEASURED (see §10/§12 — 4.6 s load, 8.6 s val split at the
+  production point, ≈8 CPU-h train extrapolation). Residual: training-side
+  stage timings (paired build, inference) remain qualitative.
 
 ## 3. Unresolved
 
-- **[Original] #1 — Target-edge leakage in BFS.** HIGHEST RISK. No text may be
-  added until B1 inspection confirms (a) adjacency built from train triples
-  only, (b) query edge + inverse masked per sample, (c) whether test edges can
-  reach BFS during evaluation. If masking is absent → code fix + path
-  re-extraction + §3.3 paragraph; note ℓ=1 direct-edge paths are NOT excluded
-  by the current "ℓ ≤ 0 excluded" rule, so a leaked test edge would trivially
-  reach the gold answer.
+- **[Original] #1 — Target-edge leakage in BFS.** Paper-side text now
+  RESOLVED (2026-09-20): §3.3 in both paperv3/paperv4 states masking as an
+  enforced mechanism, backed by the worker design audited in the benchmark
+  round (own-edge masking per probe incl. inverse, both orientations;
+  split-scoped path graphs; completeness checks per batch — see §10).
+  Remaining residual: the final read-through of `preprocess.cpp` for
+  independent verification (post-deadline), then close fully.
 - **[Original] #3 — Architectural/hyperparameter ablations.** No ablation
   table (readout, depth 4/8/12, hops 3/5, frozen vs fine-tuned). Needs the
   B4 sweep (≈12–16 prod runs × ~7.5 h) — post-deadline. Conclusion's depth-8
@@ -137,28 +148,24 @@ original venue is rejected, so no rebuttal work remains.)
 - **[Original] #4-experiment — Contrastive/temperature loss variant.**
   Agreed positioning: margin loss stays main; contrastive variant becomes an
   extra row (B3). Not implemented.
-- **[SOICT] Compile verification (user).** Compile paperv3.tex on prism
-  (+ refs.bib, figures/overview.svg, figures/case.svg,
-  figures/per_relation.svg — copy per_relation.svg from assets root):
-  - [ ] ≤12 pages excl. refs (target ~11); report count if over
-  - [ ] per_relation.svg legibility in PDF
-  - [ ] no unresolved refs: fig:overview, fig:per-relation, fig:case-study,
-        tab:results
-  - [ ] zero BibTeX errors (zhang2022learning volume+number conflict fixed in
-        assets/refs.bib on 2026-09-16; the 5 offending fields were DELETED with
-        provenance comments placed AFTER each entry's closing brace — bibtex on
-        prism does NOT honor % comments inside entry bodies, which caused
-        "missing field name" + cascade "empty year"; COPY refs.bib to the
+- **[SOICT] Compile verification (user).** Compile `paperv4.tex` on prism
+  (+ refs.bib, figures/overview.svg, figures/case.svg, figures/bfs_sweep.svg
+  — copy bfs_sweep.svg from assets root). Fallback target: `paperv3.tex`
+  (instead needs figures/per_relation.svg):
+  - [ ] ≤12 pages excl. refs; report count if over
+  - [ ] bfs_sweep.svg legibility in PDF (v4) / per_relation.svg (v3)
+  - [ ] no unresolved refs (v4): fig:overview, fig:bfs-sweep, fig:case-study,
+        tab:results — v4 has ONE table (results) and no tab:runtime (merged
+        into prose, see §13)
+  - [ ] zero BibTeX errors (refs.bib fixed 2026-09-16; COPY refs.bib to the
         prism workspace — versioned in repo as single source of truth)
   - [ ] font warnings reduced: pslatex commented out (bold-Symbol warning gone,
-        confirmed), \emergencystretch 1.5em added; amsmath now loads before
-        amssymb/amstext (attempt to silence \vec accent warning; if it
-        persists it is benign — paperv3 never uses \vec); expect Computer
-        Modern metrics — recheck page count after the font switch
+        confirmed), \emergencystretch 1.5em added; amsmath loads before
+        amssymb/amstext (\vec accent warning benign if it persists — no \vec
+        used); Computer Modern metrics — recheck page count after font switch
   - [ ] leftover acceptable warnings: caption/"unknown document class"
-        (subcaption kept for future use, harmless), \vec accent (if it
-        persists), underfull bbl/vbox messages (cosmetic, splncs04 +
-        float-page stretching), remaining small overfull boxes ≤13pt
+        (subcaption kept, harmless), \vec accent (if it persists), underfull
+        bbl/vbox messages (cosmetic), remaining small overfull boxes ≤13pt
 - **[SOICT] Camera-ready repo fate.** Paper is link-less for submission;
   decide later whether to keep link-less or populate
   `github.com/HaiDang2001VN/pamr` (code, C++ build, configs, README) before
@@ -168,8 +175,8 @@ original venue is rejected, so no rebuttal work remains.)
 
 1. **Compile results on prism** (page count, figure rendering, label check)
    — unblocks final SOICT submission.
-2. **#8 provenance confirmation** — VL-KGE baseline numbers: locally
-   evaluated (yes/no).
+2. ~~#8 provenance confirmation~~ — RESOLVED (user confirmed local
+   evaluation, see §2/#8).
 3. **Machine access decision** (Vast.ai instance ID / local / later) for B1,
    B3, B4.
 4. **B1 artifacts**: adjacency-list source used by `preprocess.cpp`
@@ -185,7 +192,9 @@ original venue is rejected, so no rebuttal work remains.)
 7. **B4 decisions**: run budget (≈12–16 × 7.5 h prod), trimming order
    (default: frozen-vs-tuned → hop 3 → depth 12), prod vs reduced split,
    seed policy.
-8. **#14 timings**: end-to-end wall-clock from existing logs or one run.
+8. **#14 timings**: BFS stage MEASURED (§10/§12); remaining stages
+   (query generation, path-table write, paired build, test inference)
+   from logs or one run.
 
 ## 5. Facts worth keeping
 
@@ -431,3 +440,517 @@ State: notebook + worker v2 committed (`427b0d4`, `748bf52`, `1ad6788`,
 `470c4c8`, `1dced4e`); fixtures live only inside the Colab runtime
 (incrementally re-syncable); `assets/bfs.csv` is the single source of
 truth for all BFS numbers.
+
+## 11. Notation reconciliation round (2026-09-20, after full re-read of v3+v4)
+
+DISCOVERY: the files had been re-synced (user's prism/GDrive edits merged
+back), which reverted several Sep-16 fixes while keeping Sep-19/20 work.
+Full re-read of BOTH files (not grep) identified the complete loss list:
+the 9 proofread fixes (P1-P9 + Q4). All other rounds survived.
+
+Interview decisions: BFS decay symbol λ → **δ** (λ stays = AdamW weight
+decay, resolving the double assignment); re-apply all 9 lost fixes.
+
+Applied to BOTH paperv3 and paperv4 (identical edits):
+- **Notation**: §4.2 "at most $H=5$ hops" → "$K = 5$ hops"; BFS decay
+  "$\lambda = 0.5$" → "$\delta = 0.5$"; "~\cite{icaart26}" merged; §4.3
+  "cutoff $K$ (Hits@$K$)" → lowercase $k$ (Hits@$k$, literature standard —
+  frees K for the hop bound); §4.4 "Hits@$K$" → "Hits@$k$"; paperv3
+  per-relation caption Hits@$K$ → Hits@$k$; paperv4 runtime prose 6×
+  $H$ → $K$ + "decay 0.5" → "$\delta = 0.5$" / "$\delta$ runs 0.2→1.0";
+  fig caption "(b) at $H=5$" → "$K=5$".
+- **plot_bfs.py regenerated**: panel (a) legend $K=2/3/5$ + annotation
+  "$K=2$"; panel (b) legend $\delta=0.2/0.5/1.0$ + title "$K=5$".
+- **Re-applied lost fixes**: abstract "every prediction"→"every answer";
+  §3.3 "which include"→"; these are"; E,R → ℋ^(|V|×D)/ℋ^(|R|×D);
+  d_V/d_R defined; loss "$S^{\pm}(q)$ denote the positive and negative
+  path scores"; §3.1 comma splice → semicolon; Conclusion comma → colon;
+  $N^-$ → $|\mathcal{S}^-(q)|$.
+- **Cosmetic**: collapsed the doubled blank line at the leakage-paragraph
+  splice (both files, before "Formally, a path…").
+- **Final symbol map (authoritative)**: K = hop bound; k = rank cutoff;
+  δ = BFS decay; λ = AdamW weight decay ONLY; D = KGE embedding dim;
+  d = Transformer token width; d′ = FFN width; N = encoder depth;
+  h = heads; F = fanout; L = token-seq length; ℓ = path hops; M (bold) =
+  padding mask. Verified by sweep: zero stray H / Hits@$K$ / λ-as-decay /
+  N⁻ in both files. UPDATE (2026-09-20, §15): χ RETIRED (modality origin
+  now carried by μ: 𝒱_mod → 𝕄); 𝒯_mod dropped; NEW symbols 𝒱_concept,
+  𝒱_mod (partition of 𝒱*), ℛ_med, ℛ_concept (relation subsets in 𝒢*) —
+  all distinct from existing symbols; μ:𝒱_mod→𝕄 vs §3.2's ℳ(v)⊆𝕄 remain
+  disjoint.
+- NOTE for the user: the earlier re-sync dropped these fixes once — keep
+  this symbol map when merging any future prism/GDrive versions.
+
+## 12. paperv4 runtime section — written from bfs.csv (2026-09-20)
+
+Interview decisions: figure INSTEAD of full sweep table; 2-panel design —
+(a) reachability vs F per H with ±1 std aggregated over the three decay
+factors, (b) wall-clock vs H as 9 lines (3 F colours × 3 D dash styles);
+tab:runtime reduced to measured-only rows; leakage paragraph added to BOTH
+paperv4 and paperv3.
+
+- **New `assets/plot_bfs.py`** (conda ml) reads `bfs.csv` (v3 batch, val
+  split, mask on) and exports three artefacts:
+  `bfs_sweep_grid.csv` (raw per-config: H, F, D, found, reach_pct, wall_s,
+  rss_mb, avg_hops — the paper text quotes from this file),
+  `bfs_sweep_ci.csv` (per (H,F): found/reach mean ± std over decay),
+  `bfs_sweep.svg` (2-panel figure). Panel (a) uses one colour (#1f77b4)
+  with dash-differentiated H lines + error bars; panel (b) FINAL DESIGN
+  (after two corrections): wall-clock vs peak memory at H=5 fixed, THREE
+  polylines per decay factor (solid/dashed/dotted = D, single #d62728
+  colour), F marked by point markers (circle/square/triangle) — NOT
+  colour, NOT H on the x-axis (agent misread twice; recorded here).
+  Panel-(b) punchline: identical coverage, up to 3.8x cost, memory flat
+  (~203-227 MB) — cost, not memory, is the binding constraint.
+- **paperv4 sec:runtime fully rewritten** — 0 [TBD]s remain. Contents:
+  measured-only `tab:runtime` (graph load 4.6s/0.20GB; BFS val production
+  8.6s/0.23GB; train-split extrapolation ≈8 CPU-h labelled as linear
+  estimate; training epochs 543/577s), `fig:bfs-sweep` figure*, and prose:
+  probe structure (202 queries × 11 candidates ties to the 10-negative
+  protocol), H=2 zero-evidence structural floor tied to §3.1's three-hop
+  mediation, fanout saturation (84.5±13.4% → 99.4%), decay's two regimes
+  (coverage knob at F=10: 1,542/1,974/2,115; pure cost knob at F≥50:
+  3.8/8.6/14.8 s at identical 2,208 paths), per-probe 1.8ms + ≈8 CPU-h
+  extrapolation + amortization, avg 4.5 hops → L=13 cap exercised,
+  O(L²h)/memory/latency close.
+- **Leakage paragraph added to paperv4 AND paperv3 §3.3** (before "Formally,
+  a path…"): own-edge masking (query relation + inverse, both orientations)
+  enforced per probe; split-scoped path graphs; completeness-audited
+  worker. Issue #1's paper-side gap is CLOSED (code-backed); wip.md §3
+  should treat #1's paper text as resolved pending the final B1 read-through
+  of `preprocess.cpp` for full verification.
+- Relabeling honoured: captions say "validation split, two CPU threads" —
+  no 8-thread or train-sweep claims anywhere.
+- User compile notes: copy `bfs_sweep.svg` to the workspace `figures/`
+  dir; watch for overfull hbox around the new tables; two tables + one
+  figure* in v4 (table count: results + runtime; figures: overview +
+  bfs_sweep + case study).
+
+## 13. Runtime table → prose; epoch-time dedup (2026-09-20)
+
+User decision: tab:runtime replaced by ONE integrated verbal paragraph (no
+blank "–" memory cells, no redundant space); epoch times 543/577 s have a
+SINGLE home in the runtime analysis (paperv4 §4.5 / paperv3 §4.1) — the
+Comparative Study now says only "Computationally the trade is affordable
+(Section~\ref{sec:runtime})" without restating the numbers.
+
+- **paperv4**: `tab:runtime` block + pointer sentence DELETED; the
+  graph-loading paragraph absorbed the table's content verbally (load
+  3.5–4.6 s / 0.20 GB; production point 8.6 s wall, 4.1 s search,
+  1.8 ms/probe, 0.23 GB; train split 15.7M probes ≈ 8 CPU-h two-thread
+  linear extrapolation, cached; training loop 543 vs 577 s/epoch).
+  Final v4 float inventory: ONE table (tab:results) + three figures
+  (overview, bfs_sweep, case).
+- **paperv3**: comparative epoch sentence replaced by the pointer to
+  sec:implementation; §4.1's Runtime paragraph keeps 543/577 (single home).
+- Verified: zero `tab:runtime` references remain; no "–" cells; numbers
+  still trace to bfs_sweep_grid.csv.
+- Status: paperv4 = ACTIVE submission draft; paperv3 = per-relation
+  fallback (header + checklist updated this round).
+
+## 14. N-MMKG taxonomy round (2026-09-20, paperv4 only)
+
+Source: user's `assets/n-mmkg.md` (Gemini-generated instruction, containing
+an initial proposal + an AUDITED revision — the audited versions were used).
+Scope: Abstract + Introduction + Related Work ONLY; Method/Experiment/
+Conclusion/credits untouched; paperv3 untouched (fallback stays pre-N-MMKG).
+User decisions: (1) §4.2 stays intact — the "only benchmark" claim is
+justified by Richpedia's alignment focus (see updated §2/#5); (2) de-AI
+voice over the file's LLM-flavored wording ("monolithic vector" dropped).
+
+- **Abstract**: A-MMKG/N-MMKG terms introduced inline (no abstract cites);
+  "modality-as-entity setting" retained as the bridge to §3.1 (audit point
+  1); results sentences untouched.
+- **Introduction**: P1 names the A-MMKG formulation + \cite{zhu2024multimodal};
+  P2 ends with the N-MMKG alternative + \cite{zhu2024multimodal,liang2024survey};
+  P3 "Under this N-MMKG modality-as-entity setting"; contribution bullet 1
+  now "under an N-MMKG modality-as-entity setting" (hyphenated for
+  consistency); bullets 2-3 unchanged (audited version).
+- **Related Work**: §2.1 untouched (per file); §2.2 rewritten — keeps the
+  MMKGE lineage, closes with the A-MMKG limitation + Richpedia (alignment,
+  not link prediction) + DB15K degree-one leaves + "PAMR instead targets
+  mediating N-MMKG topologies"; §2.3 final sentence → "The mediating
+  N-MMKG topologies targeted by PAMR…".
+- **refs.bib**: appended zhu2024multimodal (TKDE 2024, doi 10.1109/
+  TKDE.2022.3224228) and wang2020richpedia (SIGIR 2020, doi 10.1145/
+  3397271.3401314); liang2024survey updated in place (added volume 46/
+  number 12/pages 9456-9478/doi 10.1109/TPAMI.2024.3417451, dropped the
+  "(TPAMI)" journal suffix, KEPT the full 10-author list — the file's
+  version had truncated authors, do not trust its author lists blindly).
+- **Untouched by design**: §3.1's modality-as-entity formalization (the
+  audited file's point 1 — N-MMKG is the paradigm, modality-as-entity the
+  realization), §4.2 (per user; the §2.2 mediating-vs-leaf text + the
+  alignment justification keep it coherent), Conclusion.
+- References grow by 2 entries (excluded from the 12-page limit); body
+  grows ~6 lines.
+
+## 15. §3.1 Overview rewrite — structural/methodological round (2026-09-20, paperv4 only)
+
+Source: user's `assets/analysis/overview.md` (four diagnoses + blueprint).
+User decisions: constraints rendered VERBALLY (no (i)-(iv), no enumerate);
+χ eliminated, μ restricted to 𝒱_mod. Style conformed to the established
+paper (the file's draft had LLM-flavored wording and an enumerate).
+
+- **Diagnoses fixed**: (1) dataset leakage — §3.1 no longer names
+  artworks/artists/hasArtist/styles/genres (all moved conceptually to §4.2;
+  generic 𝒱_concept/𝒱_mod + ℛ_med/ℛ_concept vocabulary instead); (2) χ/μ
+  double mapping resolved (χ retired, μ:𝒱_mod→𝕄 over perceptual nodes);
+  (3) inverted flow corrected — KG def → A-MMKG limitation → N-MMKG 𝒢*
+  transformation + narrated constraints → path objective on 𝒢* → four-stage
+  pipeline; (4) conversational phrasing purged ("differ in nature",
+  "multimodal-as-attachment" wording retired in favor of "attribute-based
+  (A-MMKG)").
+- **Deviations from the file's draft (recorded)**: constraints woven into
+  flowing sentences instead of an enumerate; "entity type" kept (not
+  "semantic type"); an explicit modality-as-entity bridge clause added
+  ("the modality-as-entity realization [of the N-MMKG]") — the file's draft
+  erased the term, which would have broken the §3.3/§4.2/abstract chain;
+  "leverages" → "reads"; pipeline closing kept as the established
+  "Each component is detailed in the following subsections."
+- **Path objective now anchored on 𝒢***: P(ô | s, r, 𝒢*) with
+  s, ô ∈ 𝒱_concept and r ∈ ℛ_concept; reduces to P(p_o | s, r); scorer
+  signature explicit: f̂_θ(p_o, r).
+- **paperv3 untouched** (fallback keeps the pre-N-MMKG §3.1).
+- Downstream cross-refs verified: runtime's "(Section~\ref{sec:overview})"
+  three-hop mediation pointer still valid; §3.3 configurations and §4.2
+  degree-1-leaf argument coherent with the new vocabulary; figure caption
+  untouched; net length ≈ +3 lines.
+
+## 16. COMPACTION HANDOFF — complete state snapshot (2026-09-20)
+
+Read this section FIRST after compaction; everything else in this file is
+the chronological record backing it.
+
+### Active file states (roles)
+
+- `assets/paperv4.tex` (655 lines) — **ACTIVE SOICT submission draft**.
+  Contains: N-MMKG abstract/intro/§2.2/§2.3 (§14), rewritten §3.1 Overview
+  (§15: generic 𝒱_concept/𝒱_mod, no dataset terms, χ retired, verbal
+  constraints), runtime/scalability subsection as PROSE (§13 — no
+  tab:runtime), Per-Relation Analysis REMOVED (folded one-sentence takeaway
+  into Comparative Study), Table 1 with mean±std (unweighted mean +
+  count-weighted std, 3-dec), TransE-frozen backbone + provenance, leakage
+  paragraph §3.3, notation fully reconciled (symbol map below).
+  Floats: ONE table (tab:results) + 3 figures (overview, bfs_sweep, case).
+- `assets/paperv3.tex` (615 lines) — per-relation FALLBACK, intentionally
+  DIVERGED from v4: keeps Per-Relation Analysis + per_relation.svg, §4.1
+  Runtime paragraph (epoch numbers live there, single home), comparative
+  points to sec:implementation. MISSING from v3 (by design, do not "fix"):
+  N-MMKG abstract/intro/§2.2/§2.3 (§14), rewritten §3.1 (§15).
+- `assets/paper.tex` — Group-A-era backup; paperv0/1/2 = history. Do not
+  touch.
+- `assets/refs.bib` — 36+ entries; fixed Sep-16 (5× volume+number conflicts
+  commented out with provenance AFTER braces; icaart26 pages en-dashed);
+  N-MMKG round added zhu2024multimodal + wang2020richpedia (with DOIs) and
+  updated liang2024survey (vol 46/no 12/pp/doi; FULL 10-author list kept —
+  the instruction file had truncated it). COPY refs.bib to any compile
+  workspace (single source of truth = repo).
+- Data: `result.csv` (grouped two-row header; TransE↔ComplEx rows swapped
+  per label correction; TransE = strongest baseline 0.3630 macro),
+  `resultv0.csv` (pre-swap backup), `count.csv` (val test-query counts:
+  On 74 / By 76 / PupilOf 26 / TeacherOf 26 = 202), `average.csv`
+  ({MRR,H1,H3,H5}×{avg,std,wavg,wstd} + MRR_Overall), `bfs.csv` (39 rows:
+  v2 12 + v3 27), `bfs_sweep_grid.csv` (paper quotes from here),
+  `bfs_sweep_ci.csv` (per-(H,F) mean±std over decay).
+- Scripts (conda env `ml`): `plot_detail.py` (legacy 4 SVGs + merged
+  per_relation.svg), `plot_bfs.py` (bfs_sweep.svg 2-panel + the 2 CSVs),
+  `average_macro.py` (average.csv).
+- SVG convention: assets root stores sources; compile workspace expects
+  `figures/<name>.svg`.
+- Analysis instructions: `assets/analysis/{review.md, n-mmkg.md,
+  overview.md}`.
+
+### Immediate next actions (deadline: 2026-09-20 — TODAY)
+
+1. USER compiles `paperv4.tex` on prism: copy paperv4.tex + refs.bib +
+   figures/{overview,case,bfs_sweep}.svg; run pdflatex → bibtex →
+   pdflatex ×2; report page count (≤12 excl. refs) + overfull warnings
+   around tables + bfs_sweep.svg legibility.
+2. If over page limit: trim levers in order — \tabcolsep 2pt→1.5pt;
+   Related-Work second-paragraph squeeze (~0.3 p); case-study trim.
+3. Submit via EasyChair `soict2026` (single-blind; names stay; PDF without
+   page numbers — gobble already set). Notification 2026-10-12;
+   camera-ready 2026-10-23.
+
+### Open items after the deadline (tracked in §3/§4)
+
+- #1 leakage: paper text DONE (enforced-masking §3.3); final independent
+  read-through of `preprocess.cpp` outstanding.
+- B1-B4 experiment queue (ablations, contrastive variant, seeds/CIs,
+  remaining stage timings) — see §4.
+- Camera-ready repo decision (§3 last bullet).
+
+### Process lessons (do not repeat)
+
+- The user's prism/GDrive re-syncs can REVERT local fixes silently — after
+  any user-side sync, re-verify fixes by FULL read (not grep) and check
+  against the §11 symbol map.
+- AI-generated instruction files may truncate BibTeX author lists
+  (n-mmkg.md dropped 2 of 10 liang2024survey authors) — verify author
+  lists against the repo copy before replacing entries.
+- BibTeX on prism: no `%` comments inside entry bodies; provenance notes
+  go AFTER closing braces.
+- When editing wip.md with the edit tool, never let an oldString END at a
+  section heading unless the newString re-includes it (heading-swallow
+  happened twice).
+- Table 1 caption deliberately does NOT define ± (user's neutrality call);
+  definition (count-weighted std across relations, unweighted mean) is
+  disclosed only if a reviewer asks — see §8 honesty note.
+
+## 17. Integral-analysis round (2026-09-20, pre-revision)
+
+Deep per-subsection analysis of §3→§5 for integral (non-incremental)
+revision. **No LaTeX content edited.** Full plan + evidence:
+`assets/analysis/integral.md` (§1 verification V1-V10, §3 per-subsection
+moves M-numbered, §5 execution order, §6 five open user decisions).
+
+- `assets/paperv5.tex` created (byte-exact copy of paperv4, 41,863 B).
+  ALL paperv5 edits go here; paperv4 untouched = rollback.
+- User constraints: integral rewrites only (no more scattered inserts);
+  keep the paper GENERIC (no deep implementation detail); page-count
+  guard net −2..+2 lines (SOICT 12 pages).
+- Code verification (key finds): V5 score contract — pamr_score =
+  frozen vlkge triple score + path residual, no-path probes get a
+  learned per-relation offset (pamr.py:640-646, 1002-1084) — the paper
+  currently presents the MLP output as THE score (false); V6 closes
+  wip #6(a): candidate score = MAX over its path probes, strict ranking
+  (ranking.py:53-89, 175-188); V3 the §4.2 "query and answer differ in
+  modality" clause is FALSE (dataset README: artists are TEXTUAL
+  attributes, artworks VISUAL) and the excluded-relations reason is
+  wrong for 2 of 3 (similarity relations, not preprocessing inverses);
+  V10 three-hop floor is STRUCTURAL (creation edges are functional — no
+  artwork connects two artists), verified vs bfs_sweep_grid (K=2 → 0);
+  V1 prod pamr.yaml matches every stated hyperparameter, readout:
+  average (mean pooling) almost certainly the reported mode (user to
+  confirm); V2 frozen table covers all 𝒱* → harmonize §3.2 𝒱→𝒱*;
+  V4 padding formula CORRECT as-is; V7 direction/type embeddings stay
+  OUT of the paper (generic-paper choice); V8 readout MLP is ReLU (not
+  GELU) + init sentence wrong — both fixed by the §3.4.3 residual
+  rewrite.
+- Next: user answers §6 open decisions (readout confirm, §4.2 wording
+  option A/B, excluded-relations check, no-path clause home, conclusion
+  residual mention) → then execute the M-moves on paperv5 in §5 order.
+- EXECUTION STARTED 2026-09-20 (build mode, subsection-by-subsection):
+  §3.1 applied (5 moves, +1 line); §3.2 applied (+2 lines; user decisions:
+  generic MMKGE replaces KGE in §3.2, VL-KGE naming demoted to §4.1 with
+  "auto-detected" flavor removed there, generic conditional projections,
+  𝒱/𝒱* split). §3.3 applied (restructure + user decisions: NO "leak"
+  word anywhere in the paper — standing rule, extraction protocol stated
+  implicitly; three-hop structural reason moved inline into §4.5, out of
+  Method). §3.4 applied (user confirmations: readout = MEAN POOLING —
+  closed; no-path clause in §3.4.3 only; residual contract ŷ = g + Δ,
+  ReLU in MLP, init trivia deleted, N_max defined at first use, GELU/
+  Post-LN scoped to encoder layers). Owed cross-round items tracked in
+  integral.md §3.6 block ("Transferred from §3.2"), §3.4 owed-notes, and
+  §6 resolution log. §3.5 applied (lead-in kept, "fairness" gone, padding
+  dedup with corrected \ref to sec:transformer-encoder, S± tied to the
+  score contract via \ref{sec:readout}, "score collapse" closing
+  stitch; Eq. 4 untouched). NEW: integral.md §7 = LIVING notation table
+  (symbol/meaning/defined/used + retired-disambiguated section) — update
+  every round, review after all rounds. §4.1 applied (VL-KGE instance +
+  cite transferred here per §3.2 decision, "auto-detected" gone, padding
+  clause dropped single-home, "pickle files" factual fix — CSV path
+  tables). NEW word bans 2026-09-20: "contract" (inapplicable in
+  academic context — §3.5 S± phrase reworded to "scored as defined in"),
+  joining "leak" as zero-tolerance greps. Heading uniformity rule
+  (2026-09-20): subsubsection everywhere (Method + Experiment), Title
+  Case, no trailing periods; §4.1's three \paragraph run-ins converted
+  (Path Extraction / Training Data and GPU Memory / Training
+  Configuration). REDUCTION PASS (user): machinery trivia stripped from
+  §4.1 — compiler versions, adjacency/thread-merge, pairing-across-cores,
+  memory-manager trivia, duplicated balance rationale; hardware/version
+  stack kept (reproducibility level). Owed §4.5 note: its "frozen
+  embedding table dominates GPU memory" duplicates §4.1 (single-home
+  check); "compressed adjacency"/"byte-deterministic" flavor to reduce
+  in its round. §4.2 applied (USER CORRECTIONS: dataset README is
+  VL-KGE-era/OUTDATED — not an evidence source; NO exclusion narrative —
+  inverse relations generated for unidirectional types, isRelated\*
+  bidirectional need none, hasCreatedArtwork ABSENT from paper; relation
+  choice = comparability rationale, PAR-vs-PAMR demonstrates
+  modality-as-entity benefit; "cross-modality" purged paper-wide, three
+  outer spots now generic "four evaluation relations"). SEMICOLON RULE
+   (standing): no non-listing semicolons; paper-wide sweep applied
+   (math `MHA(...; M)` + comments exempt). paperv5 = 660 lines (net +5
+   vs paperv4). §4.3 applied (max-aggregation sentence added; no-path
+   case REFERENCED via \ref{sec:readout}, not restated; closes wip
+   #6(a) in the paper). §4.4 applied + USER DATA CORRECTION: TransE↔PAMR
+   Hits@1/Hits@3 cells were wrongly placed — swapped WHOLE cells
+   (verified vs average.csv); PAMR now bold on ALL FOUR metrics, TransE
+   underlined on all four; crossover story deleted, all-metric
+   narrative + residual framing; per-relation sentence recomputed;
+   conclusion limits/future-work reframed honestly (deeper-encoders
+   dropped, contrastive reframed, next-benchmark→next-setting); abstract
+   "and leads every reported metric, with Hits@5 at 0.782"; contribution
+   3 "surpasses the strongest embedding baseline on every reported
+   metric". KNOWN-SWAP: result.csv/average.csv H1/H3 TransE↔PAMR
+   per-relation columns are swapped — do not trust; B-queue regenerate.
+   Issue #4 evaporates (was based on mislabeled numbers). COLON RULE
+   (standing): colons only for listings/equations/caption furniture;
+   explanation-like colons are an AI-voice tell — 11 fixed paper-wide
+   (intro ×3, §2.2, §3.2 "Backbone width varies" sentence dropped, §3.3
+   ×2, §4.4, §4.5 ×2, conclusion). §4.5 applied (flavor pass:
+   compressed-adjacency/byte-deterministic/plain-budget meta dropped;
+   O(L²h) merged into the L=13 sentence; frozen-table-memory fact
+   single-homed in §4.1 — §4.5's duplicate removed; Section 6 forward
+   ref kept). integral.md §7 table fixed: the 𝐄/𝐑 row's raw pipes
+   inside math broke the markdown — replaced with \lvert/\rvert
+   (verified: all rows exactly 5 cells). §4.6 applied (orphan intro
+   merged into the PAR paragraph with colon-rule adaptation, concept-
+   only terminology, auditability close echoing contribution 3
+   verbatim; path narrative untouched). §5 applied (consistency echo
+   "attained the best MRR on" → "led every reported metric on" — 3
+   aligned occurrences with abstract/contribution 3; residual-mention
+   item 5 resolved KEEP-as-is; ALL five §6 decisions closed; all
+   per-subsection rounds §3.1→§5 COMPLETE). paperv5 = 663 lines.
+   REMAINING: global cross-cutting passes (integral.md §4) — greps,
+   notation audit vs §7, \ref audit incl. sec:overview orphan label +
+   §4.5 structural-reason user confirm, length ledger, prism handoff.
+- GLOBAL PASS EXECUTED 2026-09-20 — REVISION COMPLETE, paperv5 FINAL
+  pending compile. Greps all zero; notation audit PASS; \ref audit: 21
+  refs resolve, no dangling; 19 orphan labels LEFT AS-IS (user
+  decision); §4.5 structural three-hop reason CONFIRMED by user.
+  Length: paperv4 655 ln/5255 words → paperv5 663 ln/5203 words =
+  −52 raw words (line delta is re-wrapping). Next: USER compiles on
+  prism (paperv5.tex + refs.bib + figures/{overview,case,bfs_sweep}.svg
+  → figures/; pdflatex→bibtex→pdflatex ×2; ≤12 pages excl. refs);
+  trim levers if over (\tabcolsep, Related-Work squeeze, case-study
+  trim); then EasyChair soict2026 (single-blind, gobble set).
+  Post-submission: KNOWN-SWAP CSV regeneration + B1-B4 + camera-ready
+  repo decision (wip §16). §7 NOTATION AUDIT vs full text 2026-09-20:
+  added $o$, $\mathcal{T}$/$\theta$/$\ell_p$ (folded into τ/f̂_θ/N_max
+  rows), $\mathcal{N}(0,0.02^2)$, tilde-𝐇, $\mathcal{O}(L^{2}h)$,
+  MRR/Hits@k metrics row, Table 1 ± marker (with the wip §8 withheld-
+  definition note); granularity rule recorded (operator names + loop
+  indices deliberately untracked); all main rows verified 5 cells.
+- NOTATION ROUND 2026-09-20 (user re-specification; §7 rewritten FIRST,
+  then paperv5): direct N-MMKG, no asterisks; total mapping
+  𝓜:𝒱→𝕄 (𝕄={concept,image,text,…}); g_V/g_R/𝒮 replace 𝐄/𝐑/g/ℍ;
+  𝒢_c replaces 𝒢_multi/𝒢_concept; 𝐗̃/𝐗 replace 𝐓/𝐓^in; L(ℬ) replaces
+  N_max(ℬ); S± unified roman; p_o/p_{o⁻} replace p^±_q; d′ + 𝒩 init
+  removed from Method (d′ only as §4.1 instance); Δ→ỹ; 𝐩_i→𝐞_i; §4.5
+  "2K+3=13", O(ℓ²h); contribution 1 "unified"→"frozen" embeddings.
+  **wip §11 symbol map is now OUTDATED — integral.md §7 is the single
+  authoritative notation reference.** Retired-symbol sweep zero.
+  Length: paperv5 = 629 lines, −285 raw words vs paperv4. POST-AUDIT
+  (paperv5a diff): all hunks mapped to the request; user resolved the
+  two judgment calls — contribution 1 back to "unified embeddings"
+  (re-anchored by §3.2's new unified-representations sentence for
+  g_V/g_R onto universal 𝔼) and §3.1 keeps a one-clause A-MMKG
+  contrast with new symbol 𝒳 (attribute-based multimodal features).
+  §7 updated (𝒳 row, g_V/g_R unified-representation meanings).
+  paperv5 = 632 lines. BIB-INTEGRITY round 2026-09-20 (FLUSH in
+  integral.md — READ FIRST after compaction): ℛ_med/ℛ_concept
+  verbalized (user: both); 4 backbone cites added; 6 fabricated/wrong
+  bib entries fixed via arXiv/Crossref verification (GenKGC fully
+  refabricated→WWW'22; OTKGE authors wrong; MMRNS/StAR titles+authors;
+  MKGformer DOI wrong; CoKE authors; StAR DOI); 3 UNVERIFIABLE entries
+  REMOVED (TransAE fake arXiv, RSME no trace, CSPrompter = conflated
+  with KGTransformer — §2.3 now cites zhang2023kgtransformer). Final:
+  52 entries, 38 cited all-resolving, 14 uncited leftovers kept.
+  paperv5 = 635 lines. VERIFY.MD-COMPARISON round (same day, block in
+  integral.md): Gemini's two-pass audit (prelim + prompted) compared
+  against primary sources — 2 Gemini hallucinations caught (GenKGC
+  anthology page = different paper; 2303.03922 misattributed); our
+  GenKGC/KGTransformer fixes stand; liu2019mmkg fixed via Crossref
+  6-author record (Padia/Bogdanov fabricated; Gemini omitted Li Hui +
+  Rosenblum); zhang2019quaternion authors fixed; efthymiou
+  publisher=ACM added; NO main-tex adjustments needed. LESSON: verify
+  secondary-AI audits against Crossref/arXiv primaries.
+  PAGE-PRESSURE round (2026-09-20, before bib round): Table 1 body →
+  scriptsize;
+  ALL captions → footnotesize (\captionsetup in preamble); runtime
+  caption isolated (run conditions omitted — already in §4.5 prose;
+  error-bar def + coverage-identical clause moved into main text);
+  plot_bfs.py legend fixes ((a) title "±1 std"; (b) legends swapped δ
+  lower-right / F upper-left; "vs.\" backslashes removed) and
+  bfs_sweep.svg regenerated (CSVs unchanged). USER TODO: copy new
+  bfs_sweep.svg to compile workspace figures/.
+- NEW standing style rules (2026-09-20): (1) `grep -i leak` on paperv5
+  must be ZERO — rejection trigger for skimming reviewers; extraction
+  facts stay implicit/neutral; (2) cross-section references always
+  dynamic \ref{}, never hardcoded "Section x.y".
+- PAREN-ROUND (2026-09-20, user audit): explanation-based parentheses →
+  verbal prose; parens reserved for abbreviations/math/listings/\ref/
+  caption attributions. 6 fixes + 2 consequential (i.e. British
+  normalization; while-echo → "with Hits@1 improving"). Results:
+  "MRR rises from 0.363 to 0.379, a 4.4% gain, with Hits@1 improving by
+  12.2%, Hits@3 by 8.5%, and Hits@5 by 1.3%." Battery clean, 634 lines.
+  Standing rule recorded as integral.md §4 item 9.
+- GRAMMAR-TYPO ROUND (2026-09-20): fresh part-by-part audit → 30 issues;
+  ALL fixed in new `paperv7.tex` (paperv5 = frozen pre-round copy;
+  paperv6 numbering skipped by user). 8 grammar/typo + 9 long-sentence
+  splits + 13 word-choice + D1 init→"cost" ×3 unified + D2 CLS→
+  "learnable classification token". Battery clean, 635 lines. Now the
+  ACTIVE draft = paperv7.tex.
+- SWEEP-CLAIM + ABSTRACT-TAIL ROUND (2026-09-20, paperv7): "every
+  reported metric" → "all four ranking metrics" in abstract/contrib-3/
+  §4.4/conclusion (defuses "only report what we win" reviewer angle;
+  "most of the remaining" variant rejected — undersells sweep, hedge-
+  puffery). Abstract tail → "Every prediction is accompanied by its
+  extracted multimodal path, making the answer traceable to artworks,
+  artists, and shared attributes in this experiment." User manual
+  abstract edits sanctioned: "learned" KGE tokens (drift deliberate),
+  "Separating path modelling…" sentence removed; abstract hunks in
+  paperv5↔paperv7 diffs = user-manual, never regressions. 634 lines.
+- SUBMITTED (2026-09-20, user report): SOICT 2026 submission DONE
+  (deadline day), build = paperv7. Earlier USER TODOs (prism compile,
+  copy bfs_sweep.svg to figures/) are superseded by this milestone.
+  Post-submission queue now active: (1) regenerate KNOWN-SWAPPED
+  result.csv/average.csv H1/H3 TransE↔PAMR columns; (2) B1–B4
+  experiments; (3) camera-ready: decide the commented-out
+  acknowledgment + Gemini AI-disclosure in the credits block; (4)
+   repo/publication decisions (wip §16). integral.md now carries a
+   READ-FIRST submission banner at the top.
+
+## 18. Phase 0 executed — experiment plan locked (2026-10-03)
+
+Post-submission experimental program; handoff after compaction.
+
+### Locked plan decisions (interview rounds 1 + backbone round)
+
+1. **Compute** = FIT cluster: Slurm-managed A100 40GB, up to 2 concurrent jobs
+   of 2 GPUs per job (4 concurrent single-GPU runs; the codebase has no DDP
+   wiring). Environment being refactored by ANOTHER AGENT — all GPU phases
+   wait for their readiness report; a second small interview round fires
+   only if real choices appear then.
+2. **Regen matrix = FULL**: retrain TransE (backbone + baseline), ComplEx,
+   DistMult, RotatE (baselines) + structural-only TransE (PAR backbone);
+   retrain PAMR + PAR; rescore all on the prepared query CSVs.
+3. **Backbone scope = train everywhere** (one train-scope backbone backs
+   val + test evaluation and all baseline scoring; no matched-scope pairing).
+4. **Protocol = 10 negatives × 2 seeds**: PAMR seed 42 + seed 1 (n=2 minimal
+   std, ddof=1, disclosed); baselines single-seed (42).
+5. **Ablations = core 5**: fine-tuned backbone, hop bound K=3 (fresh paths
+   extraction, max_tokens 9), depth N=12, readout cls (reported mode =
+   average), B3 contrastive = listwise_softmax with lf_temperature 0.1
+   (single run; pure-InfoNCE deferred).
+6. **rclone/GDrive auth**: superseded — data staging belongs to the FIT setup
+   (rclone shared client_id retirement warning captured live in Aug 2026).
+7. **Camera-ready policy = correct the numbers** in camera-ready if accepted.
+8. **Backbone = TransE-faithful**: pamr.yaml repoints to a retrained
+   train-scope TransE (`checkpoints/vlkge/wikiart_mkg_v2/transe_wikiart_mkg_v2_train.pt`).
+   Standing caveat: the June artifacts show the published numbers were
+   actually produced by the frozen ComplEx checkpoint (d_model=1536) — the
+   regeneration is a NEW configuration; deltas have two sources (fixed
+   pipeline + documented backbone).
+
+### Executed in Phase 0 (local-only)
+
+- Provenance resolved from synced artifacts (see bugs.md Phase 0 entry):
+  backbone evidence (ComplEx), val/test split shapes, old-test-eval
+  degeneracy (MRR 1.0000 — leakage bug now designed out).
+- New runner `pamr/scripts/verify_paths.py` fills the B1 operational half:
+  (A) scope hygiene, (B) own-edge non-usage + sample contract + probe
+  completeness, (C) PAMR↔VL-KGE candidate identity. Micro-tested (5 worlds).
+- 47 fatal `pmr.` import refs repaired (14 modules); pyproject rewired;
+  wikiart chain configs moved to the workspace-relative convention
+  (`../data/…`, `../checkpoints/…`). Full package py_compile OK.
+
+### Awaiting further turns
+
+1. FIT environment readiness report (the planning turn's readiness
+   checklist: torch ≥ 2.6 override, data staging for CSV+pkls+code,
+   lavis check, Slurm partition/QOS/walltime, g++ ≥ 9, BFS CPU cores,
+   artifact sync-back path).
+2. Then: Phase B artifact regeneration (CPU) → Phase C/D GPU rounds →
+   piggyback stage timings (last runtime-section gap) → CSV refresh.

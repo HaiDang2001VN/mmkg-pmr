@@ -1,0 +1,12 @@
+# VLKGE eval config.
+#
+# Reads scores from scores_dir and queries from prepare_config.output_dir,
+# then computes MRR/Hits@K/Accuracy with per-relation breakdown.
+#
+# Usage:
+#   python -m pamr.scripts.evaluate --config configs/eval/vlkge_eval.yaml
+
+prepare_config: wikiart_mkg_v2_neg_sampling.yaml
+scores_dir: /workspace/checkpoints/preproc/wikiart_mkg_v2/full/vlkge/ComplEx/full/
+top_k: [1, 3, 5, 10]
+seed: 42

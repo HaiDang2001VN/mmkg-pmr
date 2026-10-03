@@ -53,7 +53,7 @@ Ngoc-Thanh Le\inst{1,2}\orcidID{0009-0009-6426-2652}}
   WikiArt-MKG v2, over the four cross-modality artist relations that the dataset
   offers, PAMR reaches an MRR of 0.379 (a 4.4\% gain over the strongest embedding
   baseline) and the best Hits@5 at 0.782. Each prediction comes with the
-  multimodal path that supported it, so every prediction stays traceable to
+  multimodal path that supported it, so every answer stays traceable to
   actual artworks, artists, and shared attributes.
 
   \keywords{Knowledge Graph \and Multimodal Learning \and Path-based Reasoning \and Link Prediction \and Transformers.}
@@ -132,7 +132,7 @@ distribution $P(\hat{o} \mid s, r, \mathcal{G})$ over candidate
 objects $\hat{\mathbb{O}}$. By using the shortest paths $p_o$ between $s$ and $\hat{o}$ in $\mathcal{G}$ as the most important factor contributing to the distribution,
 the target reduces to $P(p_o \mid s, r)$. A scoring function
 $\hat{f}_\theta$ is learned to predict this target and then assigns a real-valued score to each path given the
-query relation $r$, afterward the candidate with the highest-scoring path is selected as the answer.
+query relation $r$; afterward, the candidate with the highest-scoring path is selected as the answer.
 
 In a multimodal KG the entities differ in nature; artworks are inherently visual, while artists, styles, genres, and locations are textual. The prevailing design, multimodal-as-attachment, keeps one node per entity and aggregates modality-specific embeddings $\mathbf{v}_i$, indexed by $i \in \mathbb{M}$, into a single point $\mathbf{v} \in \mathbb{H}$ (Section~\ref{sec:embedding-module} gives the aggregation). We instead split every multimodal value into its own node, the modality-as-entity formulation, so the topology itself carries the modality structure; a mapping $\chi: \mathcal{V} \to \mathbb{M}$ records which modality produced each node.
 
@@ -158,8 +158,8 @@ component is detailed in the following subsections.
 
 To supply pre-encoded relational structure without incurring additional
 training cost, we use a frozen pre-trained KGE model.  A KGE model
-learns entity embeddings $\mathbf{E} \in \mathbb{H}^{|\mathcal{V}|}$
-and relation embeddings $\mathbf{R} \in \mathbb{H}^{|\mathcal{R}|}$
+learns entity embeddings $\mathbf{E} \in \mathbb{H}^{|\mathcal{V}| \times D}$
+and relation embeddings $\mathbf{R} \in \mathbb{H}^{|\mathcal{R}| \times D}$
 such that a scoring function $g: \mathcal{V} \times \mathcal{R} \times
 \mathcal{V} \to \mathbb{R}$ assigns higher values to true triples
 than to false ones.  The embedding space $\mathbb{H}$ is a
@@ -182,7 +182,9 @@ The effective dimensionality of entity and relation representations
 depends on the KGE architecture: complex-valued models output $2D$
 dimensions while real-valued models output $D$. The Transformer
 hidden dimension is set to $d = \max(d_{\mathcal{V}},
-d_{\mathcal{R}})$, and two learnable linear projections align entity
+d_{\mathcal{R}})$, where $d_{\mathcal{V}}$ and $d_{\mathcal{R}}$ are the
+entity and relation embedding dimensions, and two learnable linear
+projections align entity
 and relation token dimensions to $d$. These
 projections are learned during PAMR training while the KGE model
 remains frozen.
@@ -222,11 +224,19 @@ it mediates; such an ablation would measure a corrupted graph rather than
 the absence of multimodal features, and PAR remains the coherent control
 in this formulation.
 
+Leakage is controlled by construction rather than by convention:
+every probe masks the query edge together with its inverse in both
+orientations before the search begins, and each split's path graph is
+built from that split's own scope, so validation and test facts never
+enter their own extraction. The masking is enforced per probe inside
+the C++ worker and audited by completeness checks on every output
+batch.
+
 Formally, a path $p$ between $s$ and $\hat{o}$ comprises $\ell + 1$
 entities connected by $\ell$ edges, where
 $\ell$ denotes the hop count bounded by $K$.
 Paths with $\ell \leq 0$ are excluded from training and evaluation as they
-carry no structural reasoning signal, which include unreachable pairs and
+carry no structural reasoning signal; these are unreachable pairs and
 trivial self loops.
 
 \subsection{PAMR Architecture}
@@ -316,8 +326,8 @@ dataset that guarantees both balance and fairness.
 
 For each query $q$, the query generation process produces one
 \textit{positive} path $p^+_q$, which connects $s$ to the
-true object $o$, and $N^-$ \textit{negative} paths
-$\mathcal{S}^-(q) = \{p^-_{q,1}, \ldots, p^-_{q,N^-}\}$, which connect
+true object $o$, and $|\mathcal{S}^-(q)|$ \textit{negative} paths
+$\mathcal{S}^-(q) = \{p^-_{q,1}, \ldots\}$, which connect
 $s$ to sampled false objects. The total number of pairs equals
 $\sum_q |\mathcal{S}^-(q)|$, ensuring that every negative is visited exactly
 once per epoch. Collation interleaves positive and negative pairs
@@ -343,8 +353,9 @@ denote a training batch with $y_i \in \{0, 1\}$. The loss is defined as:
   \max\bigl(0,\, m - \hat{y}^+ + \hat{y}^-\bigr)
   \label{eq:loss-rank}
 \end{equation}
-Here $\mathcal{Q}(\mathcal{B})$ denotes the set of unique queries in $\mathcal{B}$, and
-$m = 1.0$ is the margin. This loss directly optimises the ranking objective and prevents
+Here $S^{\pm}(q)$ denote the positive and negative path scores of query
+$q$ in the batch, $\mathcal{Q}(\mathcal{B})$ the set of unique queries in
+$\mathcal{B}$, and $m = 1.0$ the margin. This loss directly optimises the ranking objective and prevents
 score collapse.
 
 \section{Experiment}
@@ -425,9 +436,9 @@ reasoning would be vacuous there. Porting PAMR to such graphs is
 therefore a reformulation rather than a port, and we leave it to
 future work.
 
-Path extraction runs bidirectional BFS with at most $H = 5$ hops, base
-fanout $F = 100$, and decay factor $\lambda = 0.5$
-\cite{icaart26}. Both the full and the artist-only configurations are
+Path extraction runs bidirectional BFS with at most $K = 5$ hops, base
+fanout $F = 100$, and decay factor $\delta = 0.5$~\cite{icaart26}. Both
+the full and the artist-only configurations are
 evaluated, the concept-only configuration serving as the topology-only
 counterpart described in Section~\ref{sec:path-extraction}.
 
@@ -438,8 +449,8 @@ For each query, the model assigns a scalar score to every candidate
 object in the evaluated candidate set (the gold answer together with
 its 10 sampled negative candidates, as described in
 Section~\ref{sec:datasets}) and ranks them in descending order. We
-report Mean Reciprocal Rank (MRR) and Hit-rate at cutoff $K$
-(Hits@$K$), overall and per relation type.
+report Mean Reciprocal Rank (MRR) and Hit-rate at cutoff $k$
+(Hits@$k$), overall and per relation type.
 
 \subsection{Results}
 \label{sec:results}
@@ -455,7 +466,7 @@ as the structural baseline.
 
 \subsubsection{Comparative Study}
 
-Table~\ref{tab:results} reports macro-averaged MRR and Hits@$K$ across
+Table~\ref{tab:results} reports macro-averaged MRR and Hits@$k$ across
 the four evaluation relations between artists. PAMR and PAR operate over
 the frozen TransE embeddings provided by VL-KGE ($D = 768$), the
 translation-based, real-valued backbone that also produces the strongest
@@ -513,10 +524,7 @@ Hits@3. The crossover, PAMR leading MRR and Hits@5 while TransE
 leads Hits@1 and Hits@3, traces back to how the models spread
 probability: TransE concentrates it on a few candidates, PAMR
 distributes it, trading some top positions for depth of recall.
-Computationally the trade is affordable; PAMR trains in about 543
-seconds per epoch against TransE's 577 (training-step time,
-excluding one-time path extraction and preprocessing,
-Section~\ref{sec:implementation}).
+Computationally the trade is affordable (Section~\ref{sec:implementation}).
 
 \subsubsection{Per-Relation Analysis}
 
@@ -527,7 +535,7 @@ path reasoning depends on the relational context.
 \begin{figure*}[t]
   \centering
   \includesvg[width=0.98\linewidth]{figures/per_relation.svg}
-  \caption{Per-relation performance. Rows: MRR and Hits@$K$;
+  \caption{Per-relation performance. Rows: MRR and Hits@$k$;
     columns: the four artist-to-artist relations. PAMR leads most
     metrics on \texttt{isPupilOf} and \texttt{isInfluencedOn},
     TransE on \texttt{isTeacherOf} and \texttt{isInfluencedBy}, and
@@ -589,7 +597,7 @@ Although the Transformer scorer itself is a learned and non-transparent componen
 \section{Conclusion}
 \label{sec:conclusion}
 
-This paper introduced PAMR, a path-aware reasoner for multimodal knowledge graphs that operates under a modality-as-entity setting, multimodal values become graph nodes, and structural paths are scored by a Transformer over frozen KGE tokens. The framework attained the best MRR on WikiArt-MKG v2's four cross-modality artist relations and, more importantly for multimodal practice, attaches to each prediction a path through shared artworks and attributes that a reader can follow end to end. The learned scorer itself remains non-transparent, but what it scores is auditable.
+This paper introduced PAMR, a path-aware reasoner for multimodal knowledge graphs that operates under a modality-as-entity setting: multimodal values become graph nodes, and structural paths are scored by a Transformer over frozen KGE tokens. The framework attained the best MRR on WikiArt-MKG v2's four cross-modality artist relations and, more importantly for multimodal practice, attaches to each prediction a path through shared artworks and attributes that a reader can follow end to end. The learned scorer itself remains non-transparent, but what it scores is auditable.
 
 The study has limits. The scoring spreads probability widely, which serves MRR and Hits@5 but loses Hits@1 and Hits@3 to TransE, possibly because eight encoder layers are not enough to sharpen the head of the ranking; inference over long interleaved sequences also stays costly when graphs grow. Future work will target both: KV caching and hardware-aware attention for long sequences, deeper encoders for the top ranks, and contrastive objectives that separate top candidates from hard negatives. Extending the modality-as-entity formulation to dynamic or temporal modalities is the natural next benchmark, and, as traceable evidence becomes a central requirement of trusted multimodal systems, we consider path-grounded judgement a strength worth keeping in future designs.
 

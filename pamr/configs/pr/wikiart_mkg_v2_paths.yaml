@@ -1,0 +1,52 @@
+# Path-relation (PR) preprocessing config — WikiArt-MKG-v2
+#
+# Runs bidirectional BFS between head and each candidate tail to extract
+# shortest paths through the knowledge graph. Uses the prepared negative-
+# sampled query CSVs from the evaluation protocol.
+#
+# Usage:
+#   python -m pamr.models.pr.preprocess --config configs/pr/wikiart_mkg_v2_paths.yaml
+
+# ── Input data ────────────────────────────────────────────────────────────
+# Knowledge graph triples (used to build the undirected graph for BFS)
+graph_csv: ../data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+
+# Reference to eval prepare config (to find query CSVs)
+prepare_config: configs/eval/wikiart_mkg_v2_neg_sampling.yaml
+
+# ── BFS parameters ────────────────────────────────────────────────────────
+max_hops: 5           # Maximum path length (in hops)
+max_fanout: 100       # Max neighbours explored per node per BFS level
+decay_factor: 0.5     # Fanout multiplier per depth (1.0 = no decay)
+
+# ── Path graph scope and masking ──────────────────────────────────────────
+# Defaults (leakage-safe): val paths use train facts only, test paths use
+# train+val facts. A split may never include its own facts without an
+# explicit disclosure here. mask_query_edges additionally masks each probe's
+# own direct edge (query relation + registry inverse between head and tail)
+# in EVERY split, so train evidence matches eval evidence. The
+# target-traversal rule is uniform: when false, BFS denies all target-
+# relation edges in every split (default true = allowed, non-own target
+# edges only serve as prediction basis and are not leakage).
+path_graph:
+  mask_query_edges: true
+  allow_target_relation_traversal: true
+
+# ── Parallelism ───────────────────────────────────────────────────────────
+# Worker v2: ONE process parses the graph and spawns num_threads internal
+# threads sharing one CSR adjacency — the graph is parsed once per run and
+# resident RAM is one adjacency (≈ 12 bytes/directed edge + node arrays),
+# independent of num_threads. num_threads must fit the machine's vCPUs.
+num_threads: 8        # Number of internal worker threads
+
+# ── Compilation ───────────────────────────────────────────────────────────
+cpp_source: pmr/models/pr/preprocess.cpp
+binary_path: pmr/models/pr/preprocess.o
+compile_flags: "-std=c++23 -O3 -pthread"
+
+# ── Output ────────────────────────────────────────────────────────────────
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2/
+keep_temp: false      # Keep per-split temporary files (graph.csv, queries.csv)
+
+# ── Seed ──────────────────────────────────────────────────────────────────
+seed: 42

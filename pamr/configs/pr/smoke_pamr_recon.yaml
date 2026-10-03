@@ -1,0 +1,42 @@
+# Smoke: PAMR training with reconstruction loss (causal next-token L2).
+#
+# Hybrid attention: prefix [CLS..t1] gets full bidirectional context,
+# AR region [r2..tail] uses causal masking + predicts next-token embeddings.
+# Score = -avg_l2 (higher = better reconstruction = more likely positive).
+#
+# Usage:
+#   python -m pamr.scripts.train_pamr --config configs/pr/smoke_pamr_recon.yaml
+
+# ── Architecture (smoke) ────────────────────────────────────────
+num_layers: 1
+num_heads: 8              # 1536/8 = 192 per head
+dim_feedforward: 768
+dropout: 0.1
+causal: true               # forced by reconstruction mode anyway
+readout: cls               # unused in reconstruction mode
+use_node_types: true
+
+# ── Frozen VLKGE embedding source ──────────────────────────────
+vlkge_config: ../wikiart_mkg_v2/complex_clip.yaml
+vlkge_checkpoint: ../checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2.pt
+
+# ── Path data (1% smoke) ───────────────────────────────────────
+paths_dir: ../checkpoints/preproc/wikiart_mkg_v2/smoke/pamr/
+queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/smoke/
+max_hops: 5
+max_tokens: 13
+
+# ── Training ────────────────────────────────────────────────────
+loss_mode: reconstruction
+batch_size: 128           # 256 samples after paired collate
+lr: 0.001
+epochs: 100
+patience: 0
+eval_every: 1
+eval_max_batches: 999999  # full val/test
+
+# ── Output ──────────────────────────────────────────────────────
+log_metrics: true
+save_checkpoint: true
+
+seed: 42

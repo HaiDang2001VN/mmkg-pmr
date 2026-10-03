@@ -34,11 +34,11 @@ dependencies = [
 ]
 
 [project.scripts]
-pmr-train = "pmr.scripts.train_embedding:main"
-pmr-train-pamr = "pmr.scripts.train_pamr:main"
+pamr-train = "pamr.scripts.train_embedding:main"
+pamr-train-pamr = "pamr.scripts.train_pamr:main"
 
 [tool.setuptools.packages.find]
-include = ["pmr", "pmr.*"]
+include = ["pamr", "pamr.*"]
 
 [tool.setuptools.package-data]
-pmr = ["configs/**/*.yaml", "data/**/*"]
+pamr = ["configs/**/*.yaml", "data/**/*"]
