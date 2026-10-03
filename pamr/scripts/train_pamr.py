@@ -115,6 +115,7 @@ def resolve_config(config_path_str):
     config = utils.load_yaml_config(cfg_path)
     config = utils.resolve_config_paths(config, base_dir=cfg_path.parent, repo_root=REPO_ROOT)
     return config, cfg_path.parent
+def main():
     # Prevent CUDA memory fragmentation — required when a large frozen model
     # (VLKGE, ~1.4 GB) is loaded before the trainable transformer.
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")

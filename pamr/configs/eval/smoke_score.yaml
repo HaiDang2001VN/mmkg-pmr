@@ -14,7 +14,7 @@ textual_features_path: ../data/wikiart_mkg_v2/features/wikiart_mkg_v2_tf_clip.pk
 normalize_visual: false
 normalize_textual: false
 
-model: ComplEx
+model: TransE
 embedding_dim: 768
 fusion_mode: average
 use_structural: true
@@ -22,6 +22,11 @@ use_visual: true
 use_textual: true
 freeze_visual: true
 freeze_textual: true
+
+# TransE-specific
+p_norm: 1
+normalize_relations: true
+margin: 12.0
 
 inductive: true
 modality_asymmetry: true
@@ -37,7 +42,7 @@ artist2artist_relations:
   - isTeacherOf
 
 output_dir: ../checkpoints/preproc/wikiart_mkg_v2/
-checkpoint_path: ../checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2.pt
+checkpoint_path: ../checkpoints/vlkge/wikiart_mkg_v2/transe_wikiart_mkg_v2_train.pt
 
 batch_size: 512
 log_metrics: true

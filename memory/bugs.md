@@ -88,14 +88,36 @@ Executed toward the locked experiment plan; local-only work (no training, no C++
 - **Second freeze loop repair** — `train_pamr.py` had its own `p.requires_grad = False` loop outside the model which would have silently defeated `fine_tune_backbone`; both sites now gate on the flag (model `__init__` + script), and trainable-vs-frozen params are printed and logged (`fine_tune_backbone`, `lf_temperature` keys in `pamr_training_metrics.json`).
 - Torch micro-tests via the graphml env: default freeze (no grad to backbone), fine-tune split (feature table frozen, structural/relation trainable, backward reaches vlkge), and listwise temperature (temp=1.0 equals raw softmax; temp=0.1 sharpens and differs). Full package py_compile OK.
 
+### Phase 0 audit + defect round (2026-10-03) — READ FIRST after compaction
+
+The Phase 0 output was audited; two critical defects were found and now fixed. Verification policy for this round: ast/compile + logical determination only (no local runs — the workstation was starved).
+
+**Fixed — `pamr/scripts/train_pamr.py` missing `def main():` (CRITICAL).** The entire training body (1-indexed 117–989) was unreachable dead code inside `resolve_config()` after its `return`. Fix: inserted `def main():` right after the return; the body was already at correct 4-space function indentation (no dedent needed — the first transform wrongly dedented to 0-indent, caught by ast.parse before the corrupted write was accepted; the file was restored via `git checkout` and the insert applied). Verified: resolve_config 106–117, main 118–990, `if __name__ == "__main__"` calls `main()` (992–993), `PYTORCH_CUDA_ALLOC_CONF` reachable as main's first statements, package-wide sweep finds ZERO unreachable statements after returns, py_compile OK.
+
+**Fixed — `pamr/scripts/verify_paths.py` check_meta registry-hash false mismatch (CRITICAL).** The per-key cross-check loop previously compared graph meta's top-level `relation_registry_hash` against REAL paths meta, where the hash is NESTED (`relation_registry.manifest.registry_hash` — `to_dict()` adds it inside) — every real artifact split would falsely FAIL. Now: `graph_hash` = graph meta top-level; `paths_hash` = `(paths_meta["relation_registry"] or {}).get("registry_hash")`; the loop covers only path_graph_scope / mask_query_edges / allow_target_relation_traversal. Verified by AST: loop excludes the key; nested comparison present.
+
+**Hardened — check A gains registry-inverse ids.** `build_exclusion_index` loads `inverse_relation_id` (str→int) from the artifact's own paths-meta manifest and adds each excluded fact's registry-inverse id to the pair's forbidden set (try/except per entry; degrades to raw-id-only if the manifest is missing). This matches the docstring's promise; no false-negative today (the graph file never materializes inverses — the C++ does at load), but the audit is now bulletproof against future pipeline changes.
+
+**Policy — `requirements.txt` relaxed to version floors** (per user: no strict matching on all libraries; main ones keep floors): `torch>=2.6`, `pandas>=2.2`, `numpy>=1.26`, `transformers>=4.48`. The exact campaign environment is selected on FIT after its preparation completes (see the FIT handoff below).
+
+**Repointed — all smoke chains to the TransE train-scope base (user instruction).** `configs/pr/smoke_pamr.yaml` + `smoke_pamr_recon.yaml` now carry `vlkge_config: ../wikiart_mkg_v2/transe_clip.yaml` + `vlkge_checkpoint: …/transe_wikiart_mkg_v2_train.pt` (with stale d_model/heads comments fixed to 768 / 96 per head). `configs/eval/smoke_score.yaml` (self-contained) additionally swapped the inline arch `model: ComplEx` → `model: TransE` + TransE-specific keys (`p_norm: 1`, `normalize_relations: true`, `margin: 12.0`) — otherwise a ComplEx arch would load a TransE state dict and crash on key mismatch. Ablation configs already inherited TransE (derived after the repoint). YAML-validated.
+
+**Hop flattening confirmed (user): prod and h3 flatten the SAME way.** Both sbatch chains flatten the preprocess run dir (`<base>/<ts>/` → `<base>/pamr/`) identically; the committed configs' paths_dir conventions already agree.
+
+**Test fixture mirrored to real shapes** (temp dir): paths-meta writer now carries the nested manifest (raw names + inverse ids + registry_hash) instead of the vacuous top-level duplicate, and graph meta carries the top-level hash + target_relation_ids.
+
+**Untouched by scope (noted):** legacy `configs/eval/vlkge_score.yaml` (absolute `/workspace` path + complex checkpoint), `pathlen_*_eval.yaml` chain, wn9_img/wikiart_mkg_v1 configs (pmr/ rename leftovers), user's `" 2.yaml"` duplicates.
+
+**VC state at the audit's end:** the fix round = 6 files (+49/−16) UNCOMMITTED (last commit = `d0895c3`); registers + commit queued for the compaction-prep turn.
+
 ---
 
 ## 2. Partially resolved — code present, known gaps
 
-- **P6 — Metric and protocol asymmetry vs VLKGE.** Was: strict-vs-non-strict tie semantics diverged, evaluation conditioned on BFS reachability only (202 evaluated val queries, Hits@10≈0.97 blocks), and `mode: train_eval` accidentally filtered PAMR training instead of eval-only as commented. Since then: the relation filter mode semantics are explicit and enforced, PAMR reports candidate coverage and ranks candidate tails, tie handling is centralized in `pmr/ranking.py` (Section 1), and the small-block conditioning is documented via coverage. Remaining gaps:
-  1. score VL-KGE on exactly the same split-local target candidate set as PAMR (no code path exists yet that consumes a reachable-subset scored by the legacy scorer); the structural check that both score CSVs rank identical candidate tails also still needs a runner (Section 3).
+- **P6 — Metric and protocol asymmetry vs VLKGE.** Was: strict-vs-non-strict tie semantics diverged, evaluation conditioned on BFS reachability only (202 evaluated val queries, Hits@10≈0.97 blocks), and `mode: train_eval` accidentally filtered PAMR training instead of eval-only as commented. Since then: the relation filter mode semantics are explicit and enforced, PAMR reports candidate coverage and ranks candidate tails, tie handling is centralized in `pamr/ranking.py` (Section 1), and the small-block conditioning is documented via coverage. Remaining gap:
+  1. score VL-KGE on exactly the same split-local target candidate set as PAMR — CLOSED by decision (2026-10-03, interview: 10-neg × 2 seeds; full-pool ranking declined) for the identity half: `pamr/scripts/verify_paths.py` check C now proves both score CSVs cover identical rows + candidate tails (runs on regenerated artifacts in Phase B/C). The full-filtered-pool scorer stays unimplemented by decision.
 
-Closed by this wave (moved to Section 1): the cache manifest gap (v4 caches now embed and validate the registry/split-policy hashes), batch-limited candidate grouping (the bucketed query-group sampler guarantees complete candidate groups per batch), per-relation coverage reporting (`path_coverage` in `pamr_training_metrics.json`), and the registry acceptance script (`pmr/scripts/check_registry.py`).
+Closed by this wave (moved to Section 1): the cache manifest gap (v4 caches now embed and validate the registry/split-policy hashes), batch-limited candidate grouping (the bucketed query-group sampler guarantees complete candidate groups per batch), per-relation coverage reporting (`path_coverage` in `pamr_training_metrics.json`), and the registry acceptance script (`pamr/scripts/check_registry.py`).
 
 ---
 
@@ -108,7 +130,7 @@ Closed by this wave (moved to Section 1): the cache manifest gap (v4 caches now 
   4. `preprocess.py` → split-scoped `graph_{train,val,test}.csv`, per-probe masked train paths, enriched `*_paths.csv` + `*_paths_meta.json`;
   5. retrain VL-KGE scopes (`train`, `train_val`, optional `train_val_test` oracle) with the 40-ID registry;
   6. retrain PAMR per selected scope with `*_v4.samples.pkl` caches (group batching on, `min_eval_coverage` 0.95, `patience` 5, per-relation no-path residual).
-- **Runtime structural checks** — no runner yet proves "no validation/test edge inside main val/test path graphs", "own edges masked in train paths" (verifiable against `graph_train.csv` + paths), or identical candidate tails between VL-KGE and PAMR score CSVs; deferred because it depends on regenerated artifacts.
+- **Runtime structural checks** — runner EXISTS (`pamr/scripts/verify_paths.py`, Phase 0): "no validation/test edge inside main val/test path graphs", "own edges masked in every split's paths", and identical candidate tails between VL-KGE and PAMR score CSVs are all checked from artifacts. Execution is deferred only because it depends on regenerated artifacts (Phase B/C on FIT).
 - **bfs v3 sweep (27-point grid)** — the benchmark notebook now carries the v3 batch: `SWEEP` = hops {2,3,5} × fanout {10,50,100} × decay {0.2,0.5,1.0} (27 configs), rows tagged `worker_version="v3"` (run-batch identity; the worker binary is unchanged from v2 — v1 was never measured, v2 = the 12-point run). The export cell merges & appends: existing `assets/bfs.csv` (12 v2 rows, all complete) plus the 27 v3 rows, deduplicated per (worker_version, hops, fanout, decay) keeping the newest — one cumulative CSV. Cells 7-8 gain validity guards that reuse the prepared val queries and the val fixture set when a previous run in the same Colab runtime is still valid (metadata + manifest checks), falling through to a full re-prep otherwise. Measured v2 baselines the v3 grid resolves: `load_wall_s` is a constant 3.5 s (single shared CSR, peak RSS ≈ 205-227 MB total) and reachability is dominated by `max_fanout` (fanout 10 finds ~4% of the 2,222 val candidates at hops=3; fanout 100 finds ~99.4%), so the new points resolve the decay axis and the hops=2 short-evidence regime.
 - **Paper-metric refresh** — blocked on the regenerated, leakage-safe comparison.
 - **B3 contrastive/temperature objective** — deferred by decision (F9); the scale-aware-margin variant also lives there.
@@ -174,3 +196,58 @@ Inspection-wave decisions (2026-09-19 interview):
   contrastive/temperature and scale-aware margins are B3 ablations.
 - No-path residual granularity is per query relation (zero-initialized);
   the Decision Record's zero-init baseline contract is unchanged.
+
+---
+
+## 4. FIT cluster handoff (verified via SSH 2026-10-03)
+
+### Access + rules
+- `ssh FIT` = 172.29.74.81, user `hlhdang`, key `id_rsa_fit` (~/.ssh/config). Banner notice + watch UI `http://172.29.74.82:8012/`.
+- Authoritative reading order: `~/AGENTS.md` (shared-HPC rules, env system, job lifecycle) → `/media02/hlhdang/README.md` (filesystem map + conventions) → `~/admin_note.txt` (store everything under `/media02/hlhdang`).
+
+### Cluster facts (verified 2026-10-03)
+| Item | Value |
+|---|---|
+| Scheduler | Slurm, single partition `batch` |
+| Nodes | gpu01 = 8×GPU, 980 GB RAM; gpu02–04 = 4×GPU, ~240 GB RAM; 256 threads each |
+| Time | MaxTime 2-00:00:00; DefaultTime 6 h |
+| Memory | DefMemPerCPU=2 GB → ALWAYS explicit `--mem` |
+| Per-job CPUs | account limit **12** |
+| GPU quota | QOS `gpu_limit` = 4 GPUs/user (RUNNING + PENDING both count) |
+| Scratch | TmpDisk=0 → /dev/shm (~500 GB gpu01) or /tmp (~1.6 TB); jobs self-clean (`trap … EXIT`) |
+| Storage | /home NFS 195 GB cluster-wide (~31 GB free, dotfiles only); /media02 5 TB 96–97% full (~200–240 GB free) |
+| Compute nodes | OFFLINE — never pip/download inside a job; stage on login |
+| Watch UI | `http://172.29.74.82:8012/` |
+
+### Environment system (MANDATORY — uv only)
+- Factory: `/media02/hlhdang/scripts/make_uv_env.sh <name> --python <spec> --project <dir>`; forbidden: conda/mamba create, python -m venv, virtualenv, pip --user, pipx, repo-internal `.venv`.
+- Names version-keyed lowercase `t<framework-ver>[-cuXXX]-py<XY>`; venvs central in `uvenvs/`, immutable-in-place; conflicts mint siblings.
+- Every project MUST have committed `pyproject.toml + uv.lock`; rebuild = `uv sync --locked`.
+- Runtime: `source /media02/hlhdang/tools/uvenv.sh` then `uv run --project <dir> python ...`; catalog `uvenvs/registry.json` via `scripts/registry.py list|verify|drop`.
+- uv pinned at `tools/uv/uv` (v0.12.19 + sha256 beside it); do not install another uv.
+
+### Existing venvs + sacred cow
+- `t251cu121-py310` torch 2.5.1+cu121 (ejepwm, planned) · `t260cu126-py312` torch 2.6.0+cu126 / numpy 2.5.2 / py3.12 (ACTIVE, used_by AKG-sv, 6 GB) · `t280-py310` torch 2.8.0 / transformers 5.14 (DreamZero, active).
+- Sacred cow: `/media02/hlhdang/AKG-sv` (active collaborator project, 161G repo braid + their venv) — DO NOT TOUCH.
+- Campaign decision: mint OUR OWN immutable sibling `t260cu126-py312-pamr` from the pamr project's uv.lock (reuse of another project's active venv is forbidden). torch 2.6 = CUDA13-driver-safe (the torch-2.5 nn.MultiheadAttention CUBLAS bug is designed out; the repo's mean-pool fallback stays dormant).
+
+### Proven sbatch patterns (projects/ejepwm/slurm/)
+- `main.sbatch`: gpu:1, 12 cpus, mem=180G, `--signal=B:USR1@300 --requeue`, `trap 'rm -rf "$SCRATCH"' EXIT`, `-o/-e` under `reports/`, chain via env vars.
+- `smoke.sbatch`: 8 cpus, gpu:1, 32G, 1 h, prints `nvidia-smi --query-gpu=name,driver_version,memory.total` + `ACCEPTANCE ...` lines.
+- CPU builds: incremental mark files so requeues skip finished work.
+- Repo conventions: projects keep README.md, MAY add AGENTS.md; relocation = rsync -a + `diff -r` byte-verify; pip/HF caches on media02, never $HOME.
+
+### Updated program (Phase A onward, FIT-organized)
+1. **A1** stage tree → `/media02/hlhdang/projects/pamr` (rsync -a + `diff -r` byte-verify); **A2** data staging (triples CSV 1.04 GB → `projects/pamr/data/`; feature pkls same; size-check first vs the communal-free figure); **A3** `uv lock` inside the project (login node, internet OK) → commit `uv.lock` + rsync it back to the workstation repo; **A4** mint `t260cu126-py312-pamr` from the pamr uv.lock + `registry.py verify`; **A5** compile `preprocess.cpp` (worker v2) — check g++ version; **A6** GPU probe sbatch (nvidia-smi + torch CUDA sanity + `ACCEPTANCE ...`).
+2. **Phase B** CPU regen = ONE sequential bash chain per bugs.md §3.1–§3.4 runbook (unchanged durations; BFS threads ≤ 12; explicit `--mem ≥ 16G`; flatten prod + h3 the same way).
+3. **Phase C/D** GPU = `train_finetune.py` fine-tune → `clears.py` clears → `verify_paths.py` C → CSV refresh → delta vs paperv7 (USR1+requeue+resume for multi-hour runs).
+4. **Phase E–G** = seed-1 + 4 ablations (+ hop-3 BFS extraction alongside).
+5. **Phase H** = piggyback stage timings (last #14 gap).
+
+### Etiquette (HPC — every sbatch)
+Diagnose `reports/<job>.out/.err` before resubmitting; jobs must be self-diagnosing (`ACCEPTANCE ...` lines); wall ≤ 45 h inside the 2-day limit; keep pending GPU pressure ≤ the 4-GPU quota; batch verification jobs.
+
+### Session-integrity lessons (compaction guard)
+- TWO degeneration loops hit this session (garbage repetition). On any recurrence: STOP, re-read the last real tool output, restart from the todo list — never keep generating.
+- Verify transforms with ast.parse gates BEFORE accepting writes; locate anchors by content search, never fixed offsets.
+- Always `git status --short` before any add; stage selectively (the Phase 0 commit mixed pre-existing tree changes — described honestly in its message, but avoid next time).

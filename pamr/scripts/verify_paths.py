@@ -64,6 +64,17 @@ def check_meta(run_dir, split, failures):
     else:
         problems.append(f"missing {paths_meta_path}")
 
+    # Real artifact shapes: graph meta carries the top-level
+    # relation_registry_hash; paths meta nests the full registry manifest
+    # (to_dict adds registry_hash INSIDE relation_registry).
+    graph_hash = (graph_meta or {}).get("relation_registry_hash")
+    paths_registry = (paths_meta or {}).get("relation_registry") or {}
+    paths_hash = paths_registry.get("registry_hash")
+    if graph_hash and paths_hash and graph_hash != paths_hash:
+        problems.append(
+            f"graph/paths registry hashes differ: {graph_hash!r} vs "
+            f"{paths_hash!r}")
+
     if graph_meta is not None:
         scope = list(graph_meta.get("path_graph_scope", []))
         # Train normally depends on its own facts (per-probe own-edge
@@ -86,8 +97,7 @@ def check_meta(run_dir, split, failures):
             problems.append("paths meta lacks relation_registry manifest")
     if graph_meta is not None and paths_meta is not None:
         for key in ("path_graph_scope", "mask_query_edges",
-                    "allow_target_relation_traversal",
-                    "relation_registry_hash"):
+                    "allow_target_relation_traversal"):
             if graph_meta.get(key) != paths_meta.get(key):
                 problems.append(
                     f"graph/paths meta disagree on {key}: "
@@ -125,6 +135,20 @@ def build_exclusion_index(run_dir, split, triples_csv, failures):
         pd.read_csv(rel_mapping_csv)["relation"].values,
         pd.read_csv(rel_mapping_csv)["id"].values))
 
+    # Registry-inverse map from the artifact's own manifest (to_dict nests
+    # inverse_relation_id). Guard against a missing manifest by degrading
+    # to raw-relation-only coverage.
+    inverse_map = {}
+    paths_meta_path = os.path.join(run_dir, f"{split}_paths_meta.json")
+    if os.path.exists(paths_meta_path):
+        with open(paths_meta_path) as f:
+            registry = (json.load(f).get("relation_registry") or {})
+        for key, value in (registry.get("inverse_relation_id") or {}).items():
+            try:
+                inverse_map[int(key)] = int(value)
+            except (TypeError, ValueError):
+                continue
+
     forbidden = {}
     n_excluded = 0
     try:
@@ -149,6 +173,9 @@ def build_exclusion_index(run_dir, split, triples_csv, failures):
             pair = frozenset((int(hid), int(tid)))
             rels = forbidden.setdefault(pair, set())
             rels.add(int(rid))
+            inv = inverse_map.get(int(rid))
+            if inv is not None:
+                rels.add(inv)
             n_excluded += 1
     return forbidden, n_excluded
 
@@ -253,7 +280,7 @@ def check_own_edge_and_completeness(run_dir, split, failures,
     if duplicate:
         failures.append(
             f"completeness[{split}]: {len(duplicate):,} probe row_indexes "
-            "appear 0 or >1 times "
+            "appear more than once "
             f"(sample {sorted(duplicate.items())[:5]})")
     if missing:
         failures.append(

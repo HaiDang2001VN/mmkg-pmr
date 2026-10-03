@@ -9,7 +9,7 @@
 
 # ── Architecture (smoke) ────────────────────────────────────────
 num_layers: 1
-num_heads: 8              # 1536/8 = 192 per head
+num_heads: 8              # 768/8 = 96 per head
 dim_feedforward: 768
 dropout: 0.1
 causal: true               # forced by reconstruction mode anyway
@@ -17,8 +17,8 @@ readout: cls               # unused in reconstruction mode
 use_node_types: true
 
 # ── Frozen VLKGE embedding source ──────────────────────────────
-vlkge_config: ../wikiart_mkg_v2/complex_clip.yaml
-vlkge_checkpoint: ../checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2.pt
+vlkge_config: ../wikiart_mkg_v2/transe_clip.yaml
+vlkge_checkpoint: ../checkpoints/vlkge/wikiart_mkg_v2/transe_wikiart_mkg_v2_train.pt
 
 # ── Path data (1% smoke) ───────────────────────────────────────
 paths_dir: ../checkpoints/preproc/wikiart_mkg_v2/smoke/pamr/

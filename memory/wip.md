@@ -954,3 +954,32 @@ Post-submission experimental program; handoff after compaction.
    artifact sync-back path).
 2. Then: Phase B artifact regeneration (CPU) → Phase C/D GPU rounds →
    piggyback stage timings (last runtime-section gap) → CSV refresh.
+
+## 19. Phase 0 defect round + FIT handoff (2026-10-03, pre-compaction)
+
+Everything operational for continuing lives in `memory/bugs.md`:
+- §1 "Phase 0 audit + defect round" — both critical defects FIXED and
+  verified (train_pamr.py `def main():` swallow; verify_paths.py
+  registry-hash false mismatch) + inverse-id hardening + requirements
+  floors (torch>=2.6 etc.) + all smoke chains repointed to the TransE
+  train-scope base (incl. smoke_score's inline arch swap) + hop flattening
+  confirmed identical for prod/h3.
+- §4 "FIT cluster handoff" — verified connection facts (ssh FIT =
+  172.29.74.81/hlhdang), Slurm limits (12 CPUs/job, 4 GPUs/user incl.
+  pending, 2-day wall, always explicit --mem, compute nodes OFFLINE),
+  the uv-only env system (version-keyed central venvs, pyproject+uv.lock
+  mandatory), existing venvs + the campaign decision (mint
+  `t260cu126-py312-pamr` from the pamr uv.lock; never touch AKG-sv), the
+  proven sbatch patterns (USR1+requeue, trap EXIT, ACCEPTANCE lines), and
+  the updated Phase A→H program (stage → uv lock → mint → compile → GPU
+  probe → CPU regen → GPU rounds → timings).
+- §1 P6/§3 runtime-check entries re-synced to the runner reality
+  (verify_paths.py check C closes the identity half; full-pool scoring
+  declined by interview).
+- VC state entering compaction: the 6-file fix round (see bugs.md §1) is
+  committed right before compaction; last standalone commit before it =
+  `d0895c3`.
+- Session-integrity rules (two degeneration loops hit): STOP on any
+  recurrence, re-read the last real tool output, restart from the todo
+  list; ast-gate every structural transform; verify anchors by content
+  search; `git status` before any add.
