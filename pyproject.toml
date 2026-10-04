@@ -2,13 +2,13 @@
 requires = ["setuptools>=64.0", "wheel"]
 
 [project]
-name = "vlkge"
+name = "pamr"
 version = "1.0.0"
-description = "VL-KGE: Vision-Language Models Meet Knowledge Graph Embeddings"
-authors = [{name = "Athanasios Efthymiou"}]
+description = "PAMR: Path-Aware Multimodal Reasoning over VL-KGE (WikiArt-MKG-v2)"
+authors = [{name = "Hai Dang Lam Huynh"}]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -22,20 +22,33 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+# FIT universal env (uvenvs/main-py312) binding: pins mirror the collective
+# env exactly so `uv sync --locked --inexact` is a no-op mutation. torch is
+# pinned to the pytorch cu130 index (one-CUDA-family policy).
+# transformers / salesforce-lavis are intentionally NOT runtime deps: the
+# regen chain imports neither (zero-shot CLIP evaluation does, and it is out
+# of campaign scope).
 dependencies = [
-    "numpy>=1.26.4",
-    "pandas>=2.2.2",
-    "torch>=2.0",
-    "transformers>=4.48.1",
-    "salesforce-lavis",
-    "pyyaml>=6.0",
-    "tqdm>=4.66",
-    "scikit-learn>=1.3",
+    "numpy==2.2.6",
+    "pandas==2.3.3",
+    "torch==2.11.0+cu130",
+    "pyyaml==6.0.3",
+    "tqdm==4.67.3",
+    "scikit-learn==1.7.2",
 ]
 
 [project.scripts]
 pamr-train = "pamr.scripts.train_embedding:main"
 pamr-train-pamr = "pamr.scripts.train_pamr:main"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 
 [tool.setuptools.packages.find]
 include = ["pamr", "pamr.*"]

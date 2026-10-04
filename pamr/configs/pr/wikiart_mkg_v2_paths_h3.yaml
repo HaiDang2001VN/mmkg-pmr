@@ -45,8 +45,8 @@ path_graph:
 num_threads: 8        # Number of internal worker threads
 
 # ── Compilation ───────────────────────────────────────────────────────────
-cpp_source: pmr/models/pr/preprocess.cpp
-binary_path: pmr/models/pr/preprocess.o
+cpp_source: pamr/models/pr/preprocess.cpp
+binary_path: pamr/models/pr/preprocess.o
 compile_flags: "-std=c++23 -O3 -pthread"
 
 # ── Output ────────────────────────────────────────────────────────────────
