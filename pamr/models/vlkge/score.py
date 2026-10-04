@@ -32,10 +32,10 @@ from tqdm import tqdm
 from pamr.dataloader import KnowledgeGraphDataLoader
 from pamr import helpers, utils
 
-SCRIPT_DIR = Path(__file__).parent.resolve()    # pmr/models/vlkge/
-PKG_ROOT   = SCRIPT_DIR.parent.parent          # mmkg-pmr/pmr/
-REPO_ROOT  = PKG_ROOT.parent                   # mmkg-pmr/
-WS_ROOT    = REPO_ROOT.parent                  # pmr/ (workspace)
+SCRIPT_DIR = Path(__file__).parent.resolve()    # pamr/models/vlkge/
+PKG_ROOT   = SCRIPT_DIR.parent.parent          # repo/pamr/
+REPO_ROOT  = PKG_ROOT.parent                   # repo/
+WS_ROOT    = REPO_ROOT.parent                  # workspace root
 
 
 def parse_args():

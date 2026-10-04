@@ -14,7 +14,7 @@ The score file format is:
     ...
 
 Usage:
-    python -m vlkge.scripts.evaluate --config configs/eval/wikiart_mkg_v2_neg_eval.yaml
+    python -m pamr.scripts.evaluate --config configs/eval/wikiart_mkg_v2_neg_eval.yaml
 """
 
 import argparse
