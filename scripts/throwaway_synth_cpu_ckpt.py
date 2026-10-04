@@ -21,22 +21,29 @@ def main():
                     help="relation_manifest.json from the run dir")
     args = ap.parse_args()
 
+    _here = os.path.dirname(os.path.abspath(__file__))
     spec = importlib.util.spec_from_file_location(
-        "pamr_registry", os.path.join(os.path.dirname(__file__),
-                                      "pamr", "relation_registry.py"))
+        "pamr_registry", os.path.join(_here, os.pardir, "pamr",
+                                      "relation_registry.py"))
     reg = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(reg)
 
     ent = pd.read_csv(args.mappings)
-    rel = pd.read_csv(args.relations)
     entity_to_id = dict(zip(ent["entity"], ent["id"].astype(int)))
-    relation_to_id = dict(zip(rel["relation"], rel["id"].astype(int)))
 
     with open(args.manifest) as f:
         manifest = json.load(f)
+    # The manifest's relation_to_id carries only the 22 named (raw)
+    # relations; the full 40-ID registry adds internal inverse IDs that get
+    # no public name. Enumerate by id so the synth state_dict has the full
+    # (40, D) shape score.py / train_pamr.py require.
+    num_relations = int(manifest["num_relations"])
+    relation_to_id = {name: int(rid)
+                      for name, rid in manifest["relation_to_id"].items()}
+    for rid in range(len(relation_to_id), num_relations):
+        relation_to_id[f"internal_inverse_{rid}"] = rid
 
     num_entities = len(entity_to_id)
-    num_relations = len(relation_to_id)
     dim = 768
     print(f"synth: entities={num_entities:,} relations={num_relations} dim={dim}")
 
