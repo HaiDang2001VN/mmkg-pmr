@@ -43,12 +43,14 @@ cp "$RUNDIR"/*_paths_meta.json "$SMOKE_BASE/pamr/"
 cp "$RUNDIR"/entity_mapping.csv "$RUNDIR"/relation_mapping.csv "$SMOKE_BASE/pamr/" 2>/dev/null
 # prepared queries (for evaluate.py + the PAMR queries_dir contract):
 cp /media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2/{train,val,test}_queries.csv "$SMOKE_BASE/pamr/"
+# evaluate proxy expects queries at the smoke ROOT (scores land there too)
+cp /media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2/{train,val,test}_queries.csv "$SMOKE_BASE/"
 
 # ── 1. Synthesize the contract-valid checkpoint ──
 run synth uvpython scripts/throwaway_synth_cpu_ckpt.py --out "$CKPT" \
-  --mappings "$RUNDIR/entity_mapping.csv" \
-  --relations "$RUNDIR/relation_mapping.csv" \
-  --manifest "$RUNDIR/relation_manifest.json"
+  --entity-mapping "$RUNDIR/entity_mapping.csv" \
+  --manifest "$RUNDIR/relation_manifest.json" \
+  --config pamr/configs/wikiart_mkg_v2/transe_clip.yaml
 
 # ── 2. score.py machinery on CPU (scores CSVs land beside the queries) ──
 sed -e "s|checkpoint_path:.*|checkpoint_path: ../checkpoints/vlkge/wikiart_mkg_v2/cpu_smoke_synth_transe.pt|" \
@@ -70,7 +72,8 @@ EOF
 run evaluate uvpython -m pamr.scripts.evaluate --config "$SMOKE_BASE/eval.yaml"
 
 # ── 4. train_pamr end-to-end machinery: 1 epoch on CPU over real paths ──
-sed -e "s|vlkge_checkpoint:.*|vlkge_checkpoint: ../checkpoints/vlkge/wikiart_mkg_v2/cpu_smoke_synth_transe.pt|" \
+sed -e "s|vlkge_config:.*|vlkge_config: /media02/hlhdang/projects/pamr/src/pamr/configs/wikiart_mkg_v2/transe_clip.yaml|" \
+    -e "s|vlkge_checkpoint:.*|vlkge_checkpoint: ../checkpoints/vlkge/wikiart_mkg_v2/cpu_smoke_synth_transe.pt|" \
     -e "s|paths_dir:.*|paths_dir: ../checkpoints/preproc/wikiart_mkg_v2/cpu_smoke/pamr/|" \
     -e "s|queries_dir:.*|queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/cpu_smoke/pamr/|" \
     -e "s|^epochs:.*|epochs: 1|" \

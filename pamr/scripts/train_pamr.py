@@ -514,7 +514,8 @@ def main():
 
     # ── 8. Training loop ──────────────────────────────────────────────────
     if log_metrics:
-        torch.cuda.reset_peak_memory_stats()
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats()
         train_wall_start = time.perf_counter()
         train_cpu_start = time.process_time()
         epoch_metrics = []
@@ -813,7 +814,8 @@ def main():
         print(f"{'─' * 60}")
 
         if log_metrics:
-            torch.cuda.reset_peak_memory_stats()
+            if device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats()
             test_wall_start = time.perf_counter()
             test_cpu_start = time.process_time()
 

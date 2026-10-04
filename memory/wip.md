@@ -986,6 +986,12 @@ Everything operational for continuing lives in `memory/bugs.md`:
   recurrence, re-read the last real tool output, restart from the todo
   list; ast-gate every structural transform; verify anchors by content
   search; `git status` before any add.
+- AUDIT + Phase C0 round (2026-10-05, pre-GPU): machinery smoke FULLY
+  GREEN on CPU (synth ckpt → score → evaluate → train_pamr 1 epoch, ~4 min
+  end-to-end); train_pamr device-guard bug fixed; output-own paths_dir for
+  PAR + 5 ablations (no artifact clobber); Phase C/D/E sbatch scripts
+  authored + FIT-staged (DefaultTime-6h hazard answered with
+  --time=12:00:00). All details: bugs.md §4 audit+preflight round.
 - Rediscovery index: `memory/bugs.md` §5 "Reference mapping — file →
   location index" (code/config anchors 5.1, artifact-provenance evidence
   5.2, FIT paths 5.3, rediscovery workflow 5.4). Consult it before
