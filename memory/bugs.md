@@ -226,6 +226,14 @@ Inspection-wave decisions (2026-09-19 interview):
 - **CRITICAL for pamr**: the sync must NOT dislodge torch 2.11.0+cu130 (one-CUDA-family policy — a PyPI default wheel would swap the cu130 build out from under the collective env). Inspect the ejepwm project's pyproject/lock for the cu130 index pattern first; if all pamr deps already exist in main-py312, prefer NO torch dependency entry at all.
 - Budget: env+cache ≤ 60 GB; stop if media02 free < 25 GB; any write expected > 5 GB needs a pre-flight `df -h /media02` + a registry note. Compute nodes OFFLINE (unverified internet) — stage on login.
 
+### GPU fleet probe (2026-10-04, Phase A6) — cu130 torch GPU-DEAD fleet-wide
+- Survey (nvidia-smi inside `--gres=gpu:1` jobs): gpu01 = 8× **A100-SXM4-40GB, driver 525.147.05** (CUDA 12.0); gpu04 = V100-DGXS-32GB, driver 535.216.03 (CUDA 12.2); gpu03/gpu02 not directly probed (gpu02 DRAINED per sinfo; gpu03 probes blocked by scheduler transiently). Node probe pattern: `-N1 --nodelist=<node> --gres=gpu:1` (missing `-N1` = "Node count specification invalid").
+- **torch 2.11.0+cu130 fails on every current driver** (needs the CUDA-13 driver family, 580+): probe job `pamr-probe` (job 78095) printed `cuda_available False` → `RuntimeError: The NVIDIA driver on your system is too old (found version 12020)` on gpu04. Files: `projects/pamr/reports/probe_78095.out/.err`.
+- The unification agent's own logs (`reports/finalize_py312.log`) show ONLY import verification — `IMPORTS-OK torch=2.11.0+cu130` — no GPU job ever ran. The collective env is GPU-sterile on this fleet.
+- Phase A completed despite this: staging (src 81 MB diff-verified; data 1.7 GB cksum-verified), uv.lock minted with env-exact pins (torch==2.11.0+cu130 via cu130 index, requires-python >=3.12; 44 packages; `uv run --no-sync` binding test IMPORT-OK), `preprocess.o` compiled (g++ 11.4, c++23), registry noted. Rename leftover swept: configs' `cpp_source/binary_path: pmr/…` → `pamr/…` (would have crashed SLURM compile step). workstation pyproject rewritten (name vlkge→pamr, env-exact pins, transformers/lavis dropped from runtime deps — only `evaluate_zero_shot.py` imports them, out of campaign scope).
+- Binding trap recorded: bare `uv run --project` spawns a FORBIDDEN repo-local `.venv`; always export `UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312` (and prefer `--no-sync` to never mutate the collective env). Registry row updated (used_by+=pamr, note records the trap).
+- GPU-phase resolution pendente user decision: (a) ask admin for 580-series drivers on A100 nodes, or (b) human-approved second CUDA-family venv `t262cu126-py3XX`-style (cu12x compatible with driver 525/535 — matching the ORIGINAL campaign plan for torch 2.6) for pamr only, or (c) run Phase B CPU-only first (prepare/BFS/graph regen need no GPU) and defer GPU traces.
+
 ---
 
 ### Environment system (SUPERSEDED 2026-10-04 — historical background)
