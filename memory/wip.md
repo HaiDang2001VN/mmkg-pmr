@@ -967,12 +967,15 @@ Everything operational for continuing lives in `memory/bugs.md`:
 - §4 "FIT cluster handoff" — verified connection facts (ssh FIT =
   172.29.74.81/hlhdang), Slurm limits (12 CPUs/job, 4 GPUs/user incl.
   pending, 2-day wall, always explicit --mem, compute nodes OFFLINE),
-  the uv-only env system (version-keyed central venvs, pyproject+uv.lock
-  mandatory), existing venvs + the campaign decision (mint
-  `t260cu126-py312-pamr` from the pamr uv.lock; never touch AKG-sv), the
-  proven sbatch patterns (USR1+requeue, trap EXIT, ACCEPTANCE lines), and
-  the updated Phase A→H program (stage → uv lock → mint → compile → GPU
-  probe → CPU regen → GPU rounds → timings).
+  the uv-only env system, now UNIFIED 2026-10-04: ONE universal
+  `main-py312` venv (py3.12.14, torch 2.11.0+cu130) — all earlier
+  venv rows EVICTED, no minting; projects bind via their own uv.lock +
+  `UV_PROJECT_ENVIRONMENT` + `uv sync --locked` (never touch AKG-sv),
+  the proven sbatch patterns (USR1+requeue, trap EXIT, ACCEPTANCE
+  lines), and the updated Phase A→H program (stage → rebind onto
+  main-py312 → compile → GPU probe → CPU regen → GPU rounds → timings).
+  src/AGENTS.md rewritten to the current pamr/FIT-era layout the same
+  day (hygiene round).
 - §1 P6/§3 runtime-check entries re-synced to the runner reality
   (verify_paths.py check C closes the identity half; full-pool scoring
   declined by interview).

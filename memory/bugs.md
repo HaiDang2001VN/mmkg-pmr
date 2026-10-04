@@ -2,7 +2,7 @@
 
 Why PAMR does not outperform VL-KGE despite consuming frozen VL-KGE embeddings as input. Triage view: fully resolved issues, partially resolved issues, and gaps that have not been touched.
 
-Context files: `pmr/models/pr/pamr.py`, `pmr/scripts/train_pamr.py`, `pmr/models/pr/preprocess.py`, `pmr/models/pr/preprocess.cpp`, `pmr/models/embedding/base.py`, `pmr/dataloader.py`, `pmr/scripts/{prepare,train_embedding,evaluate}.py`, `pmr/models/vlkge/score.py`, `pmr/configs/wikiart_mkg_v2/*`, `configs/pr/pamr.yaml`, artifact evidence in `checkpoints/preproc/wikiart_mkg_v2/full/pamr/`.
+Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`, `pamr/models/pr/preprocess.py`, `pamr/models/pr/preprocess.cpp`, `pamr/models/embedding/base.py`, `pamr/dataloader.py`, `pamr/scripts/{prepare,train_embedding,evaluate}.py`, `pamr/models/vlkge/score.py`, `pamr/configs/wikiart_mkg_v2/*`, `configs/pr/pamr.yaml`, artifact evidence in `checkpoints/preproc/wikiart_mkg_v2/full/pamr/`.
 
 ---
 
@@ -108,7 +108,7 @@ The Phase 0 output was audited; two critical defects were found and now fixed. V
 
 **Untouched by scope (noted):** legacy `configs/eval/vlkge_score.yaml` (absolute `/workspace` path + complex checkpoint), `pathlen_*_eval.yaml` chain, wn9_img/wikiart_mkg_v1 configs (pmr/ rename leftovers), user's `" 2.yaml"` duplicates.
 
-**VC state at the audit's end:** the fix round = 6 files (+49/−16) UNCOMMITTED (last commit = `d0895c3`); registers + commit queued for the compaction-prep turn.
+**VC state (stale as written; corrected 2026-10-04):** the fix round was committed at `d4c2d23` with the registers, and the §5 reference mapping landed at `ba7c335` — for the authoritative snapshot see §19 and `git log`.
 
 ---
 
@@ -219,17 +219,26 @@ Inspection-wave decisions (2026-09-19 interview):
 | Compute nodes | OFFLINE — never pip/download inside a job; stage on login |
 | Watch UI | `http://172.29.74.82:8012/` |
 
-### Environment system (MANDATORY — uv only)
+### MIGRATION 2026-10-04 (READ FIRST — supersedes the multi-venv facts below)
+- The env system is UNIFIED: exactly ONE environment `/media02/hlhdang/uvenvs/main-py312` — CPython 3.12.14, torch 2.11.0+cu130 / torchvision 0.26.0 / torchaudio 2.11.0, LeWM frozen stack, ~6.6 GB [ACTIVE, import-verified].
+- All earlier venv rows (t251cu121, t260cu126, t280) are **EVICTED** (deleted after a disk incident; free space ramped ~15 GB → ~67 GB). NEVER rebuild them; NEVER mint sibling venvs ("no new venvs — ever"; a second CUDA-family venv needs explicit human approval).
+- Project binding: minimal pyproject deps → `uv lock` on the login node → `UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312 uv sync --locked`. Keep additions minimal and note them in `uvenvs/registry.json`.
+- **CRITICAL for pamr**: the sync must NOT dislodge torch 2.11.0+cu130 (one-CUDA-family policy — a PyPI default wheel would swap the cu130 build out from under the collective env). Inspect the ejepwm project's pyproject/lock for the cu130 index pattern first; if all pamr deps already exist in main-py312, prefer NO torch dependency entry at all.
+- Budget: env+cache ≤ 60 GB; stop if media02 free < 25 GB; any write expected > 5 GB needs a pre-flight `df -h /media02` + a registry note. Compute nodes OFFLINE (unverified internet) — stage on login.
+
+---
+
+### Environment system (SUPERSEDED 2026-10-04 — historical background)
 - Factory: `/media02/hlhdang/scripts/make_uv_env.sh <name> --python <spec> --project <dir>`; forbidden: conda/mamba create, python -m venv, virtualenv, pip --user, pipx, repo-internal `.venv`.
 - Names version-keyed lowercase `t<framework-ver>[-cuXXX]-py<XY>`; venvs central in `uvenvs/`, immutable-in-place; conflicts mint siblings.
 - Every project MUST have committed `pyproject.toml + uv.lock`; rebuild = `uv sync --locked`.
 - Runtime: `source /media02/hlhdang/tools/uvenv.sh` then `uv run --project <dir> python ...`; catalog `uvenvs/registry.json` via `scripts/registry.py list|verify|drop`.
 - uv pinned at `tools/uv/uv` (v0.12.19 + sha256 beside it); do not install another uv.
 
-### Existing venvs + sacred cow
-- `t251cu121-py310` torch 2.5.1+cu121 (ejepwm, planned) · `t260cu126-py312` torch 2.6.0+cu126 / numpy 2.5.2 / py3.12 (ACTIVE, used_by AKG-sv, 6 GB) · `t280-py310` torch 2.8.0 / transformers 5.14 (DreamZero, active).
-- Sacred cow: `/media02/hlhdang/AKG-sv` (active collaborator project, 161G repo braid + their venv) — DO NOT TOUCH.
-- Campaign decision: mint OUR OWN immutable sibling `t260cu126-py312-pamr` from the pamr project's uv.lock (reuse of another project's active venv is forbidden). torch 2.6 = CUDA13-driver-safe (the torch-2.5 nn.MultiheadAttention CUBLAS bug is designed out; the repo's mean-pool fallback stays dormant).
+### Venv rows + sacred cow (SUPERSEDED — see MIGRATION above)
+- ALL named rows (`t251cu121-py310`, `t260cu126-py312`, `t280-py310`) EVICTED 2026-10-04; historical only.
+- Sacred cow: `/media02/hlhdang/AKG-sv` (active collaborator project, 161G repo braid) — DO NOT TOUCH.
+- Campaign binding decision (REVISED 2026-10-04): NO new venv — rebind pamr onto `main-py312` via its own uv.lock. torch 2.11.0+cu130 > the 2.6 floor satisfies the CUDA13-driver requirement (the repo's mean-pool fallback stays dormant; uv-locked pandas/numpy need no special handling on py3.12).
 
 ### Proven sbatch patterns (projects/ejepwm/slurm/)
 - `main.sbatch`: gpu:1, 12 cpus, mem=180G, `--signal=B:USR1@300 --requeue`, `trap 'rm -rf "$SCRATCH"' EXIT`, `-o/-e` under `reports/`, chain via env vars.
@@ -238,7 +247,7 @@ Inspection-wave decisions (2026-09-19 interview):
 - Repo conventions: projects keep README.md, MAY add AGENTS.md; relocation = rsync -a + `diff -r` byte-verify; pip/HF caches on media02, never $HOME.
 
 ### Updated program (Phase A onward, FIT-organized)
-1. **A1** stage tree → `/media02/hlhdang/projects/pamr` (rsync -a + `diff -r` byte-verify); **A2** data staging (triples CSV 1.04 GB → `projects/pamr/data/`; feature pkls same; size-check first vs the communal-free figure); **A3** `uv lock` inside the project (login node, internet OK) → commit `uv.lock` + rsync it back to the workstation repo; **A4** mint `t260cu126-py312-pamr` from the pamr uv.lock + `registry.py verify`; **A5** compile `preprocess.cpp` (worker v2) — check g++ version; **A6** GPU probe sbatch (nvidia-smi + torch CUDA sanity + `ACCEPTANCE ...`).
+1. **A1** stage tree → `/media02/hlhdang/projects/pamr` (rsync -a + `diff -r` byte-verify); **A2** data staging (triples CSV 1.04 GB → `projects/pamr/data/`; feature pkls same; size-check first vs the communal-free figure); **A3** `uv lock` inside the project (login node, internet OK) → commit `uv.lock` + rsync it back to the workstation repo; **A4** rebind pamr onto `main-py312` (minimal deps in pyproject → `uv lock` on login → verify the lock keeps torch 2.11.0+cu130 → `UV_PROJECT_ENVIRONMENT=…/main-py312 uv sync --locked` → `registry.py` note+verify); **A5** compile `preprocess.cpp` (worker v2) — check g++ version; **A6** GPU probe sbatch (nvidia-smi + torch CUDA sanity + `ACCEPTANCE ...`).
 2. **Phase B** CPU regen = ONE sequential bash chain per bugs.md §3.1–§3.4 runbook (unchanged durations; BFS threads ≤ 12; explicit `--mem ≥ 16G`; flatten prod + h3 the same way).
 3. **Phase C/D** GPU = `train_finetune.py` fine-tune → `clears.py` clears → `verify_paths.py` C → CSV refresh → delta vs paperv7 (USR1+requeue+resume for multi-hour runs).
 4. **Phase E–G** = seed-1 + 4 ablations (+ hop-3 BFS extraction alongside).
