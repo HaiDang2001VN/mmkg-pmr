@@ -670,9 +670,11 @@ def main():
                 part_path = f"{output_prefix}_paths_{tid}.txt"
                 if os.path.exists(part_path):
                     os.remove(part_path)
-            if os.path.exists(queries_csv_path):
-                os.remove(queries_csv_path)
-            print(f"    (temp files cleaned)")
+            # The row-identity probe queries stay regardless of keep_temp:
+            # verify_paths.py consumes them as a first-class artifact
+            # (probe completeness + own-edge checks). Only worker part
+            # files are throwaway.
+            print("    (worker part files cleaned)")
 
     print("\n" + "=" * 80)
     print("PREPROCESSING COMPLETE")

@@ -49,18 +49,50 @@ run paths-prod uvpython -m pamr.models.pr.preprocess \
 run paths-h3 uvpython -m pamr.models.pr.preprocess \
   --config pamr/configs/pr/wikiart_mkg_v2_paths_h3.yaml --no-compile
 
-# ── 5. Leakage-safety verification on regenerated artifacts ──
+# ── 5. Flatten + leakage-safety verification on regenerated artifacts ──
 BASE=/media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2
-PROD_RUN=$(ls -1d "$BASE"/202* 2>/dev/null | sort | tail -1)
+H3BASE=/media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2_h3
+
+flatten() {
+  local from="$1" to="$2"
+  mkdir -p "$(dirname "$to")"
+  rm -rf "$to"
+  mv "$from" "$to"
+  echo "ACCEPTANCE flatten $from -> $to"
+}
+PROD_TS=$(ls -1d "$BASE"/202* 2>/dev/null | sort | tail -1)
+H3_TS=$(ls -1d "$H3BASE"/202* 2>/dev/null | sort | tail -1)
+if [ -n "$PROD_TS" ]; then
+  run flatten-prod flatten "$PROD_TS" "$BASE/full/pamr"
+else
+  echo "ACCEPTANCE flatten-prod SKIPPED (no prod run dir)"
+fi
+if [ -n "$H3_TS" ]; then
+  run flatten-h3 flatten "$H3_TS" "$H3BASE/pamr"
+else
+  echo "ACCEPTANCE flatten-h3 SKIPPED (no h3 run dir)"
+fi
+
 echo ""
-echo "════════ VERIFY prod run dir = $PROD_RUN ════════"
-if [ -n "$PROD_RUN" ]; then
+echo "════════ VERIFY prod ════════"
+if [ -d "$BASE/full/pamr" ]; then
   run verify-prod uvpython -m pamr.scripts.verify_paths \
-    --run-dir "$PROD_RUN" \
+    --run-dir "$BASE/full/pamr" \
     --triples /media02/hlhdang/projects/pamr/data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv \
     --splits train,val,test
 else
-  echo "ACCEPTANCE verify-prod SKIPPED (no prod run dir found)"
+  echo "ACCEPTANCE verify-prod SKIPPED (no $BASE/full/pamr)"
+fi
+
+echo ""
+echo "════════ VERIFY h3 ════════"
+if [ -d "$H3BASE/pamr" ]; then
+  run verify-h3 uvpython -m pamr.scripts.verify_paths \
+    --run-dir "$H3BASE/pamr" \
+    --triples /media02/hlhdang/projects/pamr/data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv \
+    --splits train,val,test
+else
+  echo "ACCEPTANCE verify-h3 SKIPPED (no $H3BASE/pamr)"
 fi
 
 echo ""
