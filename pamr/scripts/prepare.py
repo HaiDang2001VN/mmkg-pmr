@@ -285,6 +285,10 @@ def main():
     scope_filter_maps = dl.compute_filter_maps_by_scope(
         relation_ids=filter_relation_ids)
     output_dir = config["output_dir"]
+    if not Path(output_dir).is_absolute():
+        # Deterministic regardless of the process cwd: workspace-relative
+        # = relative to REPO ROOT (matches preprocess/score consumers).
+        output_dir = str((REPO_ROOT / output_dir).resolve())
     os.makedirs(output_dir, exist_ok=True)
 
     if sampling_method not in ("set_subtraction", "rejection"):

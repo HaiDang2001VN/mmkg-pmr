@@ -104,7 +104,9 @@ def main():
 
     checkpoint_path = scfg["checkpoint_path"]
     if not Path(checkpoint_path).is_absolute():
-        checkpoint_path = str(WS_ROOT / checkpoint_path)
+        # Workspace-relative = relative to REPO ROOT (see preprocess.py),
+        # not to its parent.
+        checkpoint_path = str((REPO_ROOT / checkpoint_path).resolve())
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 

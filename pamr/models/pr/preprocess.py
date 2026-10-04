@@ -179,7 +179,10 @@ def main():
     prepare_cfg = _resolve_config(pr_cfg["prepare_config"], pr_path.parent)
     prepare_output_dir = prepare_cfg["output_dir"]
     if not Path(prepare_output_dir).is_absolute():
-        prepare_output_dir = str(WS_ROOT / prepare_output_dir)
+        # Workspace-relative = relative to REPO ROOT (src/) so that
+        # "../checkpoints/…" lands beside the repo (the convention the
+        # configs and the other scripts use).
+        prepare_output_dir = str((REPO_ROOT / prepare_output_dir).resolve())
 
     seed = pr_cfg.get("seed", 42)
     utils.set_seed(seed)
@@ -228,7 +231,7 @@ def main():
     # ── Output: datetime folder under workspace checkpoints ─────────────
     base_output = pr_cfg["output_dir"]
     if not Path(base_output).is_absolute():
-        base_output = str(WS_ROOT / base_output)
+        base_output = str((REPO_ROOT / base_output).resolve())
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(base_output, ts)
     os.makedirs(run_dir, exist_ok=True)
@@ -384,8 +387,23 @@ def main():
     for split_name in requested_splits:
         queries_path = os.path.join(prepare_output_dir, f"{split_name}_queries.csv")
         if not os.path.exists(queries_path):
-            print(f"\n  SKIP {split_name}: queries CSV not found")
-            continue
+            # Silent skips here once hid the WRONG-directory bug: abort
+            # loudly unless the prepare outputs exist NOWHERE. If the file
+            # is absent at what should be the right place, fail.
+            alt = os.path.join(str(WS_ROOT / prepare_output_dir),
+                               f"{split_name}_queries.csv")
+            if os.path.exists(alt):
+                raise FileNotFoundError(
+                    f"Prepared queries for split '{split_name}' were found "
+                    f"under the legacy workspace-root layout ({alt}) but "
+                    f"not at {queries_path}. The convention is "
+                    "REPO-ROOT-relative; rerun prepare.py from the repo "
+                    "root with the current code."
+                )
+            raise FileNotFoundError(
+                f"{split_name}_queries.csv not found under "
+                f"{prepare_output_dir} — run prepare.py first "
+                "(target-relations prepare output dir).")
 
         print(f"\n{'─' * 60}")
         print(f"  {split_name.upper()}")
