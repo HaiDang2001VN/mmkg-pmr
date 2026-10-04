@@ -1,0 +1,67 @@
+#!/bin/bash
+#SBATCH -p batch
+#SBATCH -J pamr-regenB
+#SBATCH -N1
+#SBATCH -o /media02/hlhdang/projects/pamr/reports/regenB_%A.out
+#SBATCH -e /media02/hlhdang/projects/pamr/reports/regenB_%A.err
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=48G
+#SBATCH --time=06:00:00
+
+# Phase B — CPU artifact regeneration (prepare.py -> preprocess.py BFS prod + h3
+# -> verify_paths checks A/B). Torch imports run CPU-only in the universal env;
+# no GPU code path executes. Downstream GPU phases are handled separately.
+echo "ACCEPTANCE regenB node=$(hostname) start=$(date -Iseconds)"
+source /media02/hlhdang/tools/uvenv.sh
+export UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312
+export OMP_NUM_THREADS=4
+cd /media02/hlhdang/projects/pamr/src
+
+run() {
+  local name="$1"; shift
+  echo ""
+  echo "════════ STEP $name ════════ start=$(date -Iseconds)"
+  "$@"
+  local rc=$?
+  echo "ACCEPTANCE step=$name rc=$rc end=$(date -Iseconds)"
+  if [ "$rc" -ne 0 ]; then
+    echo "ACCEPTANCE regenB FAILED at step=$name rc=$rc"
+    exit "$rc"
+  fi
+}
+
+uvpython() { "$UV_BIN" run --project . --no-sync python "$@"; }
+
+# ── 1. Registry acceptance (uses the full triples CSV; CPU only) ──
+run registry uvpython -m pamr.scripts.check_registry \
+  --config pamr/configs/wikiart_mkg_v2/transe_clip.yaml \
+  --expect-raw 22 --expect-total 40
+
+# ── 2. Query preparation (target relations, K: train 1 / val 10 / test 10) ──
+run prepare uvpython -m pamr.scripts.prepare \
+  --config pamr/configs/eval/wikiart_mkg_v2_neg_sampling.yaml
+
+# ── 3. Path extraction prod (K=5/F=100/D=0.5, own-edge masked) ──
+run paths-prod uvpython -m pamr.models.pr.preprocess \
+  --config pamr/configs/pr/wikiart_mkg_v2_paths.yaml --no-compile
+
+# ── 4. Path extraction hop-3 (ablation evidence, identical pipeline) ──
+run paths-h3 uvpython -m pamr.models.pr.preprocess \
+  --config pamr/configs/pr/wikiart_mkg_v2_paths_h3.yaml --no-compile
+
+# ── 5. Leakage-safety verification on regenerated artifacts ──
+BASE=/media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2
+PROD_RUN=$(ls -1d "$BASE"/202* 2>/dev/null | sort | tail -1)
+echo ""
+echo "════════ VERIFY prod run dir = $PROD_RUN ════════"
+if [ -n "$PROD_RUN" ]; then
+  run verify-prod uvpython -m pamr.scripts.verify_paths \
+    --run-dir "$PROD_RUN" \
+    --triples /media02/hlhdang/projects/pamr/data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv \
+    --splits train,val,test
+else
+  echo "ACCEPTANCE verify-prod SKIPPED (no prod run dir found)"
+fi
+
+echo ""
+echo "ACCEPTANCE regenB node=$(hostname) end=$(date -Iseconds) ALL-STEPS-DONE"
