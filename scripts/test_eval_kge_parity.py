@@ -84,7 +84,7 @@ class _StubModel:
 
 
 def part0():
-    print("── Part 0: synthetic — stub scorer, ptruths + empty pool ──")
+    print("── Part 0: synthetic — stub scorer, truth mask + empty pool ──")
     stub = _StubModel()
     device = torch.device("cpu")
 
@@ -97,15 +97,15 @@ def part0():
 
     batches = [
         {"head_id": torch.tensor([0]), "relation_id": torch.tensor([0]),
-         "tail_id": torch.tensor([1])},    # truths {1,2} → rank 8
+         "tail_id": torch.tensor([1])},    # truth 2 masked, 1 re-added → rank 1
         {"head_id": torch.tensor([5]), "relation_id": torch.tensor([0]),
-         "tail_id": torch.tensor([9])},    # truths {2,3} → rank 1
+         "tail_id": torch.tensor([9])},    # truths {2,3} masked → rank 7
         {"head_id": torch.tensor([0]), "relation_id": torch.tensor([0]),
-         "tail_id": torch.tensor([3])},    # truths {1,2} → rank 7
+         "tail_id": torch.tensor([3])},    # truths {1,2} masked → rank 1
         {"head_id": torch.tensor([5]), "relation_id": torch.tensor([1]),
          "tail_id": torch.tensor([7])},    # empty pool → rank 1
         {"head_id": torch.tensor([0]), "relation_id": torch.tensor([2]),
-         "tail_id": torch.tensor([4])},    # truths {7,8} ∉ pool → pool = cand
+         "tail_id": torch.tensor([4])},    # truths {7,8} ∉ pool → rank 4
     ]
     ks = [1, 3, 10]
 
@@ -117,21 +117,25 @@ def part0():
         relation_to_valid_tails=pools, device=device)
     ok = _agg_equal(ref, poo, "part0/aggregates")
 
-    # Absolute anchors (stub score = -(3h + 7r + t); r fixed per group so
-    # ordering is by -t): candidatesordered by descending id.
-    # h=0,r=0 → score of tail t = -t → rank of t = position among candidates.
-    exp_mrr = (1 / 8 + 1 / 1 + 1 / 7 + 1 / 1 + 1 / 1) / 5
+    # Absolute anchors. Stub score = -(3h + 7r + t): within an (h, r) group
+    # the smallest tail id scores highest (descending score = ascending t).
+    # Candidate sets: pool - truths | {t}. Ranks a..e = 1, 7, 1, 1, 4.
+    exp_mrr = (1 + 1 / 7 + 1 + 1 + 1 / 4) / 5   # = 19/28
     if abs(ref[0] - exp_mrr) > 1e-9:
         ok = False
         print(f"  MISMATCH part0 anchor MRR: ref={ref[0]!r} expected={exp_mrr!r}")
-    if ref[1][1] != 3 / 5:
+    if ref[1][1] != 3 / 5:                       # ranks 1,1,1 hit ≤1
         ok = False
         print(f"  MISMATCH part0 anchor H@1: {ref[1][1]!r} expected 0.6")
-    exp_rel0 = (1 / 8 + 1 / 1 + 1 / 7) / 3
+    exp_rel0 = (1 + 1 / 7 + 1) / 3               # = 5/7
     if abs(ref[2][0]["MRR"] - exp_rel0) > 1e-9:
         ok = False
         print(f"  MISMATCH part0 anchor rel0 MRR: {ref[2][0]['MRR']!r} "
               f"expected {exp_rel0!r}")
+    if abs(ref[2][2]["MRR"] - 1 / 4) > 1e-9:
+        ok = False
+        print(f"  MISMATCH part0 anchor rel2 MRR: {ref[2][2]['MRR']!r} "
+              f"expected 0.25")
     if poo[2][1]["MRR"] != 1.0:
         ok = False
         print(f"  MISMATCH part0 empty-pool branch: {poo[2][1]['MRR']!r}")
