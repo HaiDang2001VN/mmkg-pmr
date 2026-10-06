@@ -854,27 +854,41 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
             tails = batch["tail_id"].to(device)
             
             pos_scores = model(heads, relations, tails)
-                    
-            # Negative sampling
+
+            # Negative sampling. The per-triple samplers read scalars via
+            # .item(); on CUDA tensors every .item() is a device sync —
+            # 512 syncs per batch dominated the epoch wall. One .cpu()
+            # transfer per batch keeps the sampler's semantics and RNG
+            # stream identical while removing the per-triple syncs. GPU
+            # tensors are still used for the pos/neg forward passes.
+            heads_s = heads.detach().cpu()
+            relations_s = relations.detach().cpu()
+            tails_s = tails.detach().cpu()
             if use_per_relation_sampling:
                 if dataset_name == 'wikiart_mkg_v1':
                     neg_heads, neg_relations, neg_tails = negative_sampling_per_relation(
-                        heads, relations, tails, num_neg_samples,
+                        heads_s, relations_s, tails_s, num_neg_samples,
                         filter_map, relation_to_valid_tails_train, generator
                     )
                     keep_rows = None
                 else:
                     (neg_heads, neg_relations, neg_tails,
                      keep_rows) = negative_sampling_per_relation_fast(
-                        heads, relations, tails, num_neg_samples,
+                        heads_s, relations_s, tails_s, num_neg_samples,
                         filter_map, relation_to_valid_tails_train, generator
                     )
             else:
                 neg_heads, neg_relations, neg_tails = negative_sampling_uniform(
-                    heads, relations, tails, model.num_entities, num_neg_samples,
+                    heads_s, relations_s, tails_s, model.num_entities, num_neg_samples,
                     filter_map, relation_probs, generator, use_bernoulli=use_bernoulli
                 )
                 keep_rows = None
+
+            neg_heads = neg_heads.to(heads.device)
+            neg_relations = neg_relations.to(heads.device)
+            neg_tails = neg_tails.to(heads.device)
+            if keep_rows is not None:
+                keep_rows = keep_rows.to(heads.device)
 
             if keep_rows is not None:
                 n_kept = int(keep_rows.sum().item())

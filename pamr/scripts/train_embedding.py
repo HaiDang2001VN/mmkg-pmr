@@ -144,6 +144,8 @@ Examples:
                        help='Embedding dimension (default: 768)')
     parser.add_argument('--epochs', type=int, default=200,
                        help='Number of training epochs (default: 200)')
+    parser.add_argument('--eval_batch_size', type=int, default=4096,
+                       help='Loader batch size for val/test/quick-eval (protocol-neutral throughput knob)')
     parser.add_argument('--batch_size', type=int, default=512,
                        help='Training batch size (default: 512)')
     parser.add_argument('--lr', type=float, default=0.1,
@@ -391,8 +393,10 @@ def main():
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, 
                              shuffle=True, generator=generator)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    # Eval-side batching is protocol-neutral (per-triple scores are
+    # independent of batching; only throughput changes).
+    val_loader = DataLoader(val_dataset, batch_size=args.eval_batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False)
     
     # Sample train loader for quick evaluation
     sample_frac = 0.1 if args.dataset == 'wn9_img' else 0.01
@@ -409,7 +413,7 @@ def main():
         sampled_train_data = scope_train_df.sample(frac=sample_frac, random_state=args.seed)
 
     sampled_train_dataset = KGDataset(sampled_train_data, entity_to_id, relation_to_id)
-    sampled_train_loader = DataLoader(sampled_train_dataset, batch_size=args.batch_size, 
+    sampled_train_loader = DataLoader(sampled_train_dataset, batch_size=args.eval_batch_size,
                                      shuffle=False)
     print(f"Sampled {len(sampled_train_data):,} training triples for quick evaluation")
     
