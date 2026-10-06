@@ -203,7 +203,11 @@ def main():
     seed = config.get("seed", 42)
     utils.set_seed(seed)
 
-    num_workers = args.workers or multiprocessing.cpu_count()
+    # SLURM etiquette (account MaxCPUsPerJob=12): the multiprocessing pool
+    # runs inside the job's CPU allocation, so a bare cpu_count() (which is
+    # affinity-blind, returning the node total, e.g. 256) explodes into
+    # oversubscription. Default = at most 10 workers, main process keeps 2.
+    num_workers = args.workers or min(multiprocessing.cpu_count() or 1, 10)
 
     print("=" * 80)
     print("NEGATIVE-SAMPLED EVALUATION — PREPARE")

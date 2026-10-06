@@ -14,7 +14,10 @@
 echo "ACCEPTANCE regenB node=$(hostname) start=$(date -Iseconds)"
 source /media02/hlhdang/tools/uvenv_ws_env.sh
 PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
-export OMP_NUM_THREADS=4
+# 12-CPU allocation: Python/pandas hot path is single-threaded (writes);
+# the BFS worker carries its own 10 threads. Torch host threads capped.
+export OMP_NUM_THREADS=10
+export MKL_NUM_THREADS=10
 cd /media02/hlhdang/projects/pamr/src
 
 run() {
@@ -39,7 +42,7 @@ run registry uvpython -m pamr.scripts.check_registry \
 
 # ── 2. Query preparation (target relations, K: train 1 / val 10 / test 10) ──
 run prepare uvpython -m pamr.scripts.prepare \
-  --config pamr/configs/eval/wikiart_mkg_v2_neg_sampling.yaml
+  --config pamr/configs/eval/wikiart_mkg_v2_neg_sampling.yaml --workers 10
 
 # ── 3. Path extraction prod (K=5/F=100/D=0.5, own-edge masked) ──
 run paths-prod uvpython -m pamr.models.pr.preprocess \

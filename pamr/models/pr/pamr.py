@@ -298,7 +298,9 @@ class PAMRDataset(Dataset):
 
         # ── Multiprocessing build samples ──────────────────────────────
         if num_workers is None:
-            num_workers = min(cpu_count(), 16)
+            # Etiquette cap (12-CPU SLURM allocation, affinity-blind
+            # cpu_count): at most 10 workers in the build pool.
+            num_workers = min(cpu_count() or 1, 10)
 
         np_rows = len(paths_df)
         if num_workers > 1 and np_rows > 10000:

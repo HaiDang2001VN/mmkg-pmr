@@ -42,7 +42,8 @@ path_graph:
 # threads sharing one CSR adjacency — the graph is parsed once per run and
 # resident RAM is one adjacency (≈ 12 bytes/directed edge + node arrays),
 # independent of num_threads. num_threads must fit the machine's vCPUs.
-num_threads: 8        # Number of internal worker threads
+num_threads: 10       # Internal worker threads; 12-CPU SLURM job
+                      # leaves 2 for the python-side merge/graph pass
 
 # ── Compilation ───────────────────────────────────────────────────────────
 cpp_source: pamr/models/pr/preprocess.cpp
