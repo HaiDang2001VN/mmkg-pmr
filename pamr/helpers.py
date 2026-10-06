@@ -486,7 +486,15 @@ def _evaluate_kge_pooled(model, dataloader, filter_map, ks,
     """
     model.eval()
 
-    scores_budget = 16_000_000   # max scores materialized per chunk pass
+    # GPU-memory budget: the fused multimodal forward materializes ~a dozen
+    # (rows x dim) fp32 tensors per call (structural + visual/textual zeros
+    # + masked assigns + fusion result + seen masks), so the binding limit
+    # is forward ROWS per call, not the score-matrix element count. Keep
+    # rows <= ~128K => ~6-8 GB transient on A100-40 next to the model,
+    # optimizer states and cached blocks. First GPU exercise proved the
+    # score-based bound (16M elements => up to ~1.9M rows/forward) OOMs.
+    scores_budget = 16_000_000
+    rows_budget = 131_072
     triple_cap = 256
     cand_chunk = 8192
 
@@ -528,7 +536,8 @@ def _evaluate_kge_pooled(model, dataloader, filter_map, ks,
             pool_dev = pool_cpu.to(device)
             m = pool_cpu.numel()
             pool_np = pool_cpu.numpy()
-            chunk = max(1, min(triple_cap, scores_budget // m))
+            chunk = max(1, min(triple_cap, scores_budget // m,
+                               rows_budget // cand_chunk))
 
             for t0 in range(0, rows.numel(), chunk):
                 idx = rows[t0:t0 + chunk]
@@ -1020,6 +1029,9 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
         else:
             current_loader = train_loader
         
+        total_batches = len(current_loader)
+        heartbeat = max(1, total_batches // 10)
+        
         # ========== Training ==========
         model.train()
         total_loss = 0
@@ -1096,6 +1108,14 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
 
             total_loss += loss.item()
             n_loss_batches += 1
+
+            # Progress heartbeat: large epochs are otherwise fully silent.
+            if i % heartbeat == 0:
+                hb_avg = (total_loss / n_loss_batches
+                          if n_loss_batches else 0.0)
+                print(f"  Epoch {epoch + 1}/{num_epochs} "
+                      f"{i * 100 // total_batches:3d}% ({i}/{total_batches}) "
+                      f"loss={hb_avg:.4f}", flush=True)
 
         avg_loss = total_loss / n_loss_batches if n_loss_batches else 0.0
         

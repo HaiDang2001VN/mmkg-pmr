@@ -26,6 +26,9 @@ PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
 export OMP_NUM_THREADS=10
 export PYTHONUNBUFFERED=1
 export MKL_NUM_THREADS=10
+# CUDA allocator: model + Adagrad state + large transient eval forwards
+# coexist on a 40 GB card; expandable segments prevent fragmentation OOM.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 cd /media02/hlhdang/projects/pamr/src
 
 SCRATCH=/dev/shm/pamr_bb_${SLURM_JOB_ID}
