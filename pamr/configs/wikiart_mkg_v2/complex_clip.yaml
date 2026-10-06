@@ -18,7 +18,7 @@ freeze_visual: true
 freeze_textual: true
 
 epochs: 20
-batch_size: 1024
+batch_size: 2048
 lr: 0.1
 num_neg_samples: 1
 use_scheduler: false

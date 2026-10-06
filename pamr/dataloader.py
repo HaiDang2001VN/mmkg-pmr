@@ -29,6 +29,13 @@ class KGDataset(Dataset):
     """
     PyTorch Dataset for Knowledge Graph triples.
     Works with both WN9-IMG and WikiArt datasets.
+
+    Tensorized row access: the ID triple is materialized once into int64
+    tensors at construction; __getitem__ indexes them directly instead of
+    issuing a per-row pandas iloc (on a 15.7M-row frame that dominated the
+    training step wall). Batch content is bit-identical to the iloc path —
+    the shuffle generator drives indices externally, so the RNG stream is
+    untouched.
     """
     def __init__(self, data, entity_to_id, relation_to_id):
         self.data = data.copy()
@@ -44,16 +51,28 @@ class KGDataset(Dataset):
             self.data.loc[:, 'relation_id'] = self.data['relation'].map(
                 self.relation_to_id)
 
+        head_np = self.data['head_id'].to_numpy()
+        rel_np = self.data['relation_id'].to_numpy()
+        tail_np = self.data['tail_id'].to_numpy()
+        if not (np.isfinite(head_np).all() and np.isfinite(tail_np).all()
+                and np.isfinite(rel_np).all()):
+            raise ValueError(
+                "KGDataset received unmapped entity/relation names "
+                "(NaN in the ID columns); the loader mappings are "
+                "incomplete for this frame"
+            )
+        self._head_ids = torch.from_numpy(head_np.astype(np.int64))
+        self._rel_ids = torch.from_numpy(rel_np.astype(np.int64))
+        self._tail_ids = torch.from_numpy(tail_np.astype(np.int64))
+
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        triple = self.data.iloc[idx]
-        head_id, relation_id, tail_id = triple['head_id'], triple['relation_id'], triple['tail_id']
         return {
-            "head_id": torch.tensor(head_id, dtype=torch.long),
-            "relation_id": torch.tensor(relation_id, dtype=torch.long),
-            "tail_id": torch.tensor(tail_id, dtype=torch.long)
+            "head_id": self._head_ids[idx],
+            "relation_id": self._rel_ids[idx],
+            "tail_id": self._tail_ids[idx],
         }
 
 

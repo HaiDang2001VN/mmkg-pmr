@@ -195,36 +195,40 @@ def negative_sampling_per_relation(heads, relations, tails, num_neg_samples,
 def negative_sampling_per_relation_fast(heads, relations, tails, num_neg_samples,
                                         filter_map, relation_to_valid_tails, generator):
     """
-    Per-relation negative sampling WITH replacement (WikiArt-v2) - FAST version.
+    Per-relation negative sampling WITH replacement (WikiArt-v2) —
+    grouped-vectorized.
 
-    Rejection sampling against the filtered truth set. Whole-triple drop
-    contract: when a triple's pool is fully covered by known truths (hub
-    rows of the downsampled similarity family), the triple contributes no
-    negative for this epoch — the positive is never reused as a negative.
-    The caller aligns the positive side via the returned keep mask.
+    Distribution-faithful rejection sampling against the filtered truth
+    set: negatives are uniform over the relation's candidate pool minus
+    the (h, r) truths; hub rows whose pool is fully covered by known
+    truths contribute no negative (whole-triple drop; the caller aligns
+    the positive side via the returned keep mask), preserving the 4-tuple
+    contract (neg_heads, neg_rels, neg_tails, keep_rows) — kept in order,
+    neg tensors pair 1:1 with pos_scores[keep_rows].
 
-    Returns (neg_heads, neg_rels, neg_tails, keep_rows) where keep_rows is
-    a bool mask over the input batch marking rows that yielded negatives
-    (in order, so neg tensors pair 1:1 with pos_scores[keep_rows]).
+    The RNG stream differs from the earlier per-row loop (one pre-batched
+    randint draw per relation group covers the 16-attempt budget, instead
+    of lazy per-attempt draws): the uniform-over-eligible distribution is
+    unchanged, and the June bit stream was already retired together with
+    the hub-drop fix. Inputs may be CPU tensors (train loop passes
+    .cpu() copies; a CUDA input costs one sync in tolist).
     """
     batch_size = heads.size(0)
     device = heads.device
 
-    # Pre-cache per-relation pools as CPU tensors
-    pool_cache_cpu = {}
-    for r in relations.unique().tolist():
-        r = int(r)
-        if r in relation_to_valid_tails:
-            pool_cache_cpu[r] = torch.tensor(relation_to_valid_tails[r], dtype=torch.long)
+    heads_list = heads.tolist()
+    rels_list = relations.tolist()
+
+    rows_by_rel = defaultdict(list)
+    for i, r in enumerate(rels_list):
+        rows_by_rel[r].append(i)
 
     neg_heads_l, neg_rels_l, neg_tails_l = [], [], []
     drop_rows = []
 
-    for i in range(batch_size):
-        h = int(heads[i].item())
-        r = int(relations[i].item())
-
-        if r not in pool_cache_cpu:
+    for r, rows in rows_by_rel.items():
+        pool = relation_to_valid_tails.get(int(r))
+        if pool is None:
             # A relation present in a training batch must have a candidate
             # pool. Substituting the positive tail as a "negative" would
             # corrupt the loss signal, so fail loudly instead.
@@ -232,48 +236,51 @@ def negative_sampling_per_relation_fast(heads, relations, tails, num_neg_samples
                 "No candidate pool registered for training relation "
                 f"{r}; regenerate the candidate pools"
             )
+        n_pool = len(pool)
+        # One C-level randint per group pre-draws the full attempt budget:
+        # per-row rejection then walks plain python ints (no per-attempt
+        # tensor/`.item()` crossings).
+        draws = torch.randint(
+            n_pool, (len(rows), num_neg_samples, 16),
+            generator=generator).tolist()
+        for j, i in enumerate(rows):
+            h = heads_list[i]
+            truths = filter_map.get_tails((h, int(r)), set())
+            row_negs = []
+            exhausted = False
+            for k in range(num_neg_samples):
+                neg_t = None
+                for a in range(16):
+                    cand = pool[draws[j][k][a]]
+                    if cand not in truths:
+                        neg_t = cand
+                        break
+                if neg_t is None:
+                    # Rare fallback: masked view of the eligible tails
+                    if truths:
+                        avail = [t for t in pool if t not in truths]
+                    else:
+                        avail = pool
+                    if avail:
+                        pick = torch.randint(
+                            len(avail), (1,), generator=generator)
+                        neg_t = int(pick.item())
+                        neg_t = avail[neg_t]
+                    else:
+                        # Hub exhaustion: every pool tail is a known truth.
+                        # Protocol-safe drop for this triple (whole row, so
+                        # num_neg_samples>1 pairing stays coherent).
+                        exhausted = True
+                        break
+                row_negs.append(neg_t)
 
-        pool_cpu = pool_cache_cpu[r]
-        n_pool = int(pool_cpu.numel())
-        filt_set = filter_map.get_tails((h, r), set())
-
-        row_negs = []
-        exhausted = False
-        for _ in range(num_neg_samples):
-            neg_t = None
-            # Rejection sampling (usually succeeds on the first try)
-            for _attempt in range(16):
-                idx = int(torch.randint(n_pool, (1,), generator=generator).item())
-                cand = int(pool_cpu[idx].item())
-                if cand not in filt_set:
-                    neg_t = cand
-                    break
-            if neg_t is None:
-                # Rare fallback: masked view of the eligible tails
-                if filt_set:
-                    bad = torch.tensor(list(filt_set), dtype=torch.long)
-                    avail = pool_cpu[~torch.isin(pool_cpu, bad)]
-                else:
-                    avail = pool_cpu
-                if avail.numel() > 0:
-                    neg_t = int(
-                        avail[torch.randint(avail.numel(), (1,),
-                                            generator=generator).item()].item())
-                else:
-                    # Hub exhaustion: every pool tail is a known truth.
-                    # Protocol-safe drop for this triple (whole row, so
-                    # num_neg_samples>1 pairing stays coherent).
-                    exhausted = True
-                    break
-            row_negs.append(neg_t)
-
-        if exhausted:
-            drop_rows.append(i)
-            continue
-        for neg_t in row_negs:
-            neg_heads_l.append(h)
-            neg_rels_l.append(r)
-            neg_tails_l.append(neg_t)
+            if exhausted:
+                drop_rows.append(i)
+                continue
+            for neg_t in row_negs:
+                neg_heads_l.append(h)
+                neg_rels_l.append(int(r))
+                neg_tails_l.append(neg_t)
 
     keep = torch.ones(batch_size, dtype=torch.bool, device=device)
     if drop_rows:
