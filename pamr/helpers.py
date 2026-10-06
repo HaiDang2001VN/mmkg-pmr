@@ -304,6 +304,36 @@ def evaluate_kge(model, dataloader, filter_map, ks=[1, 3, 10],
     
     Returns:
         overall_mrr, overall_hits_at_k, relation_metrics
+
+    Dispatch: the tail-only WikiArt protocol (bidirectional=False with
+    candidate pools) runs through _evaluate_kge_pooled — a batched,
+    protocol-identical path. Everything else keeps the per-triple
+    reference loop (_evaluate_kge_per_triple).
+    """
+    if relation_to_valid_tails is not None and not bidirectional:
+        return _evaluate_kge_pooled(model, dataloader, filter_map, ks,
+                                    relation_to_valid_tails, device)
+    return _evaluate_kge_per_triple(model, dataloader, filter_map, ks,
+                                    bidirectional, relation_to_valid_tails,
+                                    device)
+
+
+def _evaluate_kge_per_triple(model, dataloader, filter_map, ks,
+                             bidirectional, relation_to_valid_tails, device):
+    """
+    Reference (per-triple) evaluation loop for both WN9-IMG and WikiArt.
+
+    Args:
+        model: The KGE model
+        dataloader: DataLoader for evaluation data
+        filter_map: Dict for filtered ranking
+        ks: List of k values for Hits@k
+        bidirectional: If True, evaluate both (h,r,?) and (?,r,t). If False, only (h,r,?)
+        relation_to_valid_tails: If provided, use per-relation candidates (WikiArt style)
+        device: Device for computation
+    
+    Returns:
+        overall_mrr, overall_hits_at_k, relation_metrics
     """
     model.eval()
     
@@ -432,6 +462,153 @@ def evaluate_kge(model, dataloader, filter_map, ks=[1, 3, 10],
                 **{f'Hits@{k}': relation_hits_at_ks[k][relation] / len(ranks) for k in ks}
             }
     
+    return overall_mrr, overall_hits_at_k, relation_metrics
+
+
+def _evaluate_kge_pooled(model, dataloader, filter_map, ks,
+                         relation_to_valid_tails, device):
+    """
+    Batched evaluation for the WikiArt-style tail-only protocol.
+
+    Semantics contract (identical to _evaluate_kge_per_triple with
+    bidirectional=False and candidate pools): every triple (h, r, t) is
+    ranked against sorted(pool[r] - truths(h, r) | {t}), scored by the
+    model per candidate. Grouping triples per relation and scoring the
+    shared pre-sorted pool in chunked forwards preserves that candidate
+    index space exactly: removing known truths and re-adding the true
+    tail keeps the sorted order, a stable descending argsort breaks score
+    ties by pool position in both constructions, and -inf masked truths
+    sort strictly last in both (they are absent in the reference list).
+
+    Model forwards are flattened to 1D (the fusion/inductive paths read
+    batch_size from entity_ids.shape[0] and assign via 1D boolean masks),
+    matching the reference call shape row-for-row.
+    """
+    model.eval()
+
+    scores_budget = 16_000_000   # max scores materialized per chunk pass
+    triple_cap = 256
+    cand_chunk = 8192
+
+    heads_l, rels_l, tails_l = [], [], []
+    with torch.no_grad():
+        for batch in dataloader:
+            heads_l.append(batch["head_id"])
+            rels_l.append(batch["relation_id"])
+            tails_l.append(batch["tail_id"])
+        if not heads_l:
+            raise RuntimeError("evaluate_kge received an empty eval loader")
+        heads_all = torch.cat(heads_l)
+        rels_all = torch.cat(rels_l)
+        tails_all = torch.cat(tails_l)
+
+        ranks_tail = []
+        hits_at_ks_tail = {k: 0 for k in ks}
+
+        relation_ranks_tail = defaultdict(list)
+        relation_hits_at_ks = {k: defaultdict(int) for k in ks}
+        relation_counts = defaultdict(int)
+
+        for rel_id in rels_all.unique().tolist():
+            r = int(rel_id)
+            rows = (rels_all == r).nonzero(as_tuple=False).flatten()
+            pool = relation_to_valid_tails.get(r)
+            if not pool:
+                # Degenerate candidate universe {t}: per-triple rank 1.
+                n = rows.numel()
+                ranks_tail.extend([1] * n)
+                relation_ranks_tail[r].extend([1] * n)
+                relation_counts[r] += n
+                for k in ks:
+                    hits_at_ks_tail[k] += n
+                    relation_hits_at_ks[k][r] += n
+                continue
+
+            pool_cpu = torch.tensor(pool, dtype=torch.long)
+            pool_dev = pool_cpu.to(device)
+            m = pool_cpu.numel()
+            pool_np = pool_cpu.numpy()
+            chunk = max(1, min(triple_cap, scores_budget // m))
+
+            for t0 in range(0, rows.numel(), chunk):
+                idx = rows[t0:t0 + chunk]
+                h_cpu = heads_all[idx]
+                t_cpu = tails_all[idx]
+                b = idx.numel()
+                rel_col = torch.full((b,), r, dtype=torch.long,
+                                     device=device)
+
+                # Known-truth mask + true-tail positions (CPU bookkeeping;
+                # no CUDA sync — searchsorted runs on a CPU pool copy).
+                mask = torch.zeros(b, m, dtype=torch.bool)
+                pos_t = torch.full((b,), -1, dtype=torch.long)
+                for j in range(b):
+                    hi = int(h_cpu[j].item())
+                    ti = int(t_cpu[j].item())
+                    truths = filter_map.get_tails((hi, r), set())
+                    if truths:
+                        t_np = np.fromiter(sorted(truths), dtype=np.int64)
+                        pos = np.searchsorted(pool_np, t_np)
+                        clipped = np.minimum(pos, m - 1)
+                        in_pool = pool_np[clipped] == t_np
+                        if in_pool.any():
+                            mask[j, torch.from_numpy(
+                                pos[in_pool]).long()] = True
+                    pt = int(np.searchsorted(pool_np, ti))
+                    if pt < m and pool_np[pt] == ti:
+                        # The true tail re-enters the candidate universe.
+                        mask[j, pt] = False
+                        pos_t[j] = pt
+                    else:
+                        raise RuntimeError(
+                            "Eval tail absent from its relation candidate "
+                            f"pool (relation {r}, tail {ti}); pools are "
+                            "supersets of loader facts — regenerate the "
+                            "candidate pools"
+                        )
+
+                h_dev = h_cpu.to(device)
+                scores = torch.empty(b, m, device=device)
+                for c0 in range(0, m, cand_chunk):
+                    c1 = min(c0 + cand_chunk, m)
+                    w = c1 - c0
+                    hf = h_dev.unsqueeze(1).expand(b, w).reshape(-1)
+                    rf = rel_col.unsqueeze(1).expand(b, w).reshape(-1)
+                    tf = pool_dev[c0:c1].unsqueeze(0).expand(b, w).reshape(-1)
+                    scores[:, c0:c1] = model(hf, rf, tf).view(b, w)
+                scores = scores.masked_fill(mask.to(device), float("-inf"))
+
+                order = torch.argsort(scores, dim=1, descending=True,
+                                      stable=True)
+                rank = (order == pos_t.to(device).unsqueeze(1)).int()
+                rank = rank.argmax(dim=1) + 1
+                rk = rank.tolist()
+                for j in range(b):
+                    rj = rk[j]
+                    ranks_tail.append(rj)
+                    relation_ranks_tail[r].append(rj)
+                    relation_counts[r] += 1
+                    for k in ks:
+                        if rj <= k:
+                            hits_at_ks_tail[k] += 1
+                            relation_hits_at_ks[k][r] += 1
+
+        overall_mrr = sum(1.0 / r for r in ranks_tail) / len(ranks_tail)
+        overall_hits_at_k = {k: hits_at_ks_tail[k] / len(ranks_tail)
+                             for k in ks}
+
+        relation_metrics = {}
+        for relation, count in relation_counts.items():
+            if count == 0:
+                continue
+            ranks = relation_ranks_tail[relation]
+            mrr = sum(1.0 / r for r in ranks) / len(ranks)
+            relation_metrics[relation] = {
+                'MRR': mrr,
+                **{f'Hits@{k}': relation_hits_at_ks[k][relation]
+                   / len(ranks) for k in ks}
+            }
+
     return overall_mrr, overall_hits_at_k, relation_metrics
 
 

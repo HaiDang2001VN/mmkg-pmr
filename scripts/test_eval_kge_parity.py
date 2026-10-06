@@ -1,0 +1,270 @@
+"""Parity harness: _evaluate_kge_per_triple (reference) vs _evaluate_kge_pooled
+(batched dispatch path of evaluate_kge, tail-only WikiArt protocol).
+
+Part 0 (synthetic, seconds): stub scorer + tiny universe — pins exact
+  ranks/metrics for the truth mask, true-tail re-entry, truths-outside-pool
+  and degenerate empty-pool branches.
+Part 1 (real data, minutes): real v2 loader + untrained seeded VLKGE model;
+  val + sampled-train slices must produce identical per-relation metrics
+  (exact) and overall MRR (bit-identical order within a relation; overall
+  may differ in summation order only — tolerance 1e-9).
+
+Run on FIT login or any CPU shell with the repo bind:
+  python scripts/test_eval_kge_parity.py [--config pamr/configs/wikiart_mkg_v2/transe_clip.yaml]
+  (local quick check: --skip-real runs the synthetic part only)
+"""
+import argparse
+import sys
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import torch
+
+SRC = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SRC))
+
+from pamr import helpers, utils  # noqa: E402
+from pamr.dataloader import DirectionalFilterMap, KGDataset  # noqa: E402
+
+
+def _agg_equal(ref, pooled, label, tol=1e-9, verbose=True):
+    """Assert aggregate-metric equality between the two evaluators."""
+    ok = True
+    msgs = []
+    for name, a, b in (
+        ("MRR", ref[0], pooled[0]),
+        ("H@1", ref[1][1], pooled[1][1]),
+        ("H@3", ref[1].get(3), pooled[1].get(3)),
+        ("H@10", ref[1].get(10), pooled[1].get(10)),
+    ):
+        if a is None and b is None:
+            continue
+        if abs(a - b) > tol:
+            ok = False
+            msgs.append(f"MISMATCH {label} {name}: ref={a!r} pooled={b!r}")
+    ref_rel = ref[2]
+    poo_rel = pooled[2]
+    if set(ref_rel) != set(poo_rel):
+        ok = False
+        msgs.append(f"MISMATCH {label} relation sets differ: "
+                    f"{set(ref_rel) ^ set(poo_rel)}")
+    for rel in set(ref_rel) & set(poo_rel):
+        if abs(ref_rel[rel]["MRR"] - poo_rel[rel]["MRR"]) > 0.0:
+            ok = False
+            msgs.append(f"MISMATCH {label} rel={rel} MRR exact: "
+                        f"{ref_rel[rel]['MRR']!r} vs {poo_rel[rel]['MRR']!r}")
+        for key in (f"Hits@{k}" for k in (1, 3, 10)):
+            if key in ref_rel[rel] and key in poo_rel[rel]:
+                if ref_rel[rel][key] != poo_rel[rel][key]:
+                    ok = False
+                    msgs.append(
+                        f"MISMATCH {label} rel={rel} {key} exact: "
+                        f"{ref_rel[rel][key]!r} vs {poo_rel[rel][key]!r}")
+    if verbose:
+        tag = "OK" if ok else "FAIL"
+        print(f"ACCEPTANCE parity[{label}] {tag}")
+        for m in msgs:
+            print("  " + m)
+    return ok
+
+
+# ───────────────────────── Part 0: synthetic bookkeeping ──────────────────
+
+class _StubModel:
+    """Deterministic scorer standing in for a VLKGE model (CPU)."""
+
+    def eval(self):
+        return self
+
+    def __call__(self, head, relation, tail):
+        scores = -(3.0 * head.float() + 7.0 * relation.float()
+                   + 1.0 * tail.float())
+        return scores
+
+
+def part0():
+    print("── Part 0: synthetic — stub scorer, ptruths + empty pool ──")
+    stub = _StubModel()
+    device = torch.device("cpu")
+
+    stub_scores = -(3.0 * 0.0 + 7.0 * 0.0 + torch.arange(0, 10).float())
+    filter_map = DirectionalFilterMap(
+        tails={(0, 0): {1, 2}, (5, 0): {2, 3}, (0, 2): {7, 8}},
+        heads={},
+    )
+    pools = {0: list(range(1, 10)), 2: list(range(1, 6)), 1: []}
+
+    batches = [
+        {"head_id": torch.tensor([0]), "relation_id": torch.tensor([0]),
+         "tail_id": torch.tensor([1])},    # truths {1,2} → rank 8
+        {"head_id": torch.tensor([5]), "relation_id": torch.tensor([0]),
+         "tail_id": torch.tensor([9])},    # truths {2,3} → rank 1
+        {"head_id": torch.tensor([0]), "relation_id": torch.tensor([0]),
+         "tail_id": torch.tensor([3])},    # truths {1,2} → rank 7
+        {"head_id": torch.tensor([5]), "relation_id": torch.tensor([1]),
+         "tail_id": torch.tensor([7])},    # empty pool → rank 1
+        {"head_id": torch.tensor([0]), "relation_id": torch.tensor([2]),
+         "tail_id": torch.tensor([4])},    # truths {7,8} ∉ pool → pool = cand
+    ]
+    ks = [1, 3, 10]
+
+    ref = helpers._evaluate_kge_per_triple(
+        stub, batches, filter_map, ks=ks, bidirectional=False,
+        relation_to_valid_tails=pools, device=device)
+    poo = helpers._evaluate_kge_pooled(
+        stub, batches, filter_map, ks=ks,
+        relation_to_valid_tails=pools, device=device)
+    ok = _agg_equal(ref, poo, "part0/aggregates")
+
+    # Absolute anchors (stub score = -(3h + 7r + t); r fixed per group so
+    # ordering is by -t): candidatesordered by descending id.
+    # h=0,r=0 → score of tail t = -t → rank of t = position among candidates.
+    exp_mrr = (1 / 8 + 1 / 1 + 1 / 7 + 1 / 1 + 1 / 1) / 5
+    if abs(ref[0] - exp_mrr) > 1e-9:
+        ok = False
+        print(f"  MISMATCH part0 anchor MRR: ref={ref[0]!r} expected={exp_mrr!r}")
+    if ref[1][1] != 3 / 5:
+        ok = False
+        print(f"  MISMATCH part0 anchor H@1: {ref[1][1]!r} expected 0.6")
+    exp_rel0 = (1 / 8 + 1 / 1 + 1 / 7) / 3
+    if abs(ref[2][0]["MRR"] - exp_rel0) > 1e-9:
+        ok = False
+        print(f"  MISMATCH part0 anchor rel0 MRR: {ref[2][0]['MRR']!r} "
+              f"expected {exp_rel0!r}")
+    if poo[2][1]["MRR"] != 1.0:
+        ok = False
+        print(f"  MISMATCH part0 empty-pool branch: {poo[2][1]['MRR']!r}")
+    print("ACCEPTANCE parity[part0] " + ("OK" if ok else "FAIL"))
+    return ok
+
+
+# ───────────────────────── Part 1: real data slice ────────────────────────
+
+def part1(config_path, n_val, n_train, seed, device):
+    print(f"── Part 1: real data — config={config_path} "
+          f"n_val={n_val} n_train={n_train} ──")
+    from torch.utils.data import DataLoader
+
+    cfg_path = Path(config_path)
+    if not cfg_path.is_absolute():
+        cfg_path = SRC / cfg_path
+    cfg = utils.load_yaml_config(cfg_path)
+    cfg = utils.resolve_config_paths(cfg, base_dir=cfg_path.parent,
+                                     repo_root=SRC)
+
+    from pamr.dataloader import KnowledgeGraphDataLoader
+    dl = KnowledgeGraphDataLoader(
+        data_path=cfg["data_path"], dataset_name=cfg["dataset"],
+        exclude_relations=cfg.get("exclude_relations"),
+        exclude_relations_eval=cfg.get("exclude_relations_eval"),
+        inverse_relation_pairs=cfg.get("inverse_relation_pairs"),
+        symmetric_relations=cfg.get("symmetric_relations"),
+        use_per_relation_candidates=cfg.get("use_per_relation_candidates", True),
+        artist2artist_relations=cfg.get("artist2artist_relations"),
+        bidirectional_eval=False)
+    entity_to_id, relation_to_id = dl.get_entities_and_relations()
+
+    train_data, val_data, test_data = dl.split_data()
+    filter_map = dl.compute_filter_map()
+    pools_val = dl.relation_to_valid_tails_eval_val
+    pools_train = dl.relation_to_valid_tails_eval_train
+    print(f"  triples: train={len(train_data):,} val={len(val_data):,} "
+          f"(filter_map built)", flush=True)
+
+    feat_args = SimpleNamespace(
+        use_visual=cfg.get("use_visual", True),
+        use_textual=cfg.get("use_textual", True),
+        use_relation_features=False,
+        visual_features_path=cfg.get("visual_features_path"),
+        textual_features_path=cfg.get("textual_features_path"),
+        relation_features_path=None,
+        normalize_visual=False, normalize_textual=False,
+        normalize_relation=False)
+    (visual_features, textual_features, relation_features,
+     vis_idx, txt_idx) = utils.load_features(
+        feat_args, entity_to_id, relation_to_id,
+        num_relations=dl.get_num_relations())
+
+    utils.set_seed(seed)
+    model, _, _ = helpers.get_model(
+        model_name=cfg["model"], num_entities=len(entity_to_id),
+        num_relations=dl.get_num_relations(),
+        visual_features=visual_features, textual_features=textual_features,
+        relation_features=relation_features,
+        visual_entity_to_index=vis_idx, textual_entity_to_index=txt_idx,
+        embedding_dim=cfg.get("embedding_dim", 768),
+        fusion_mode=cfg.get("fusion_mode", "average"),
+        use_structural=True, use_visual=cfg.get("use_visual", True),
+        use_textual=cfg.get("use_textual", True),
+        freeze_visual=True, freeze_textual=True,
+        inductive=cfg.get("inductive", True),
+        modality_asymmetry=cfg.get("modality_asymmetry", True),
+        p_norm=cfg.get("p_norm", 1),
+        normalize_relations=cfg.get("normalize_relations", True),
+        margin=cfg.get("margin", 12.0), lr=cfg.get("lr", 0.1),
+        use_scheduler=False, device=device)
+    if hasattr(model, "mark_seen_entities"):
+        seen = sorted(set(train_data['head'].map(entity_to_id).dropna().astype(int))
+                      .union(set(train_data['tail'].map(entity_to_id)
+                                           .dropna().astype(int))))
+        model.mark_seen_entities(torch.tensor(seen, dtype=torch.long))
+    print("  model ready (untrained, seeded — deterministic)", flush=True)
+
+    ks = [1, 3, 10]
+    all_ok = True
+    for label, frame, pools, n in (
+        ("val", val_data, pools_val, n_val),
+        ("sampled_train", train_data, pools_train, n_train),
+    ):
+        slice_df = frame.sample(n=min(n, len(frame)), random_state=seed)
+        ds = KGDataset(slice_df, entity_to_id, relation_to_id)
+        loader = DataLoader(ds, batch_size=64, shuffle=False)
+
+        t0 = time.perf_counter()
+        ref = helpers._evaluate_kge_per_triple(
+            model, loader, filter_map, ks=ks, bidirectional=False,
+            relation_to_valid_tails=pools, device=device)
+        wall_ref = time.perf_counter() - t0
+
+        loader2 = DataLoader(KGDataset(slice_df, entity_to_id, relation_to_id),
+                             batch_size=64, shuffle=False)
+        t0 = time.perf_counter()
+        poo = helpers._evaluate_kge_pooled(
+            model, loader2, filter_map, ks=ks,
+            relation_to_valid_tails=pools, device=device)
+        wall_poo = time.perf_counter() - t0
+
+        ok = _agg_equal(ref, poo, f"part1/{label}")
+        n_rel = len(ref[2])
+        print(f"  {label}: ref {wall_ref:.1f}s vs pooled {wall_poo:.1f}s "
+              f"({n_rel} relations)")
+        all_ok = all_ok and ok
+    return all_ok
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config",
+                    default="pamr/configs/wikiart_mkg_v2/transe_clip.yaml")
+    ap.add_argument("--n-val", type=int, default=400)
+    ap.add_argument("--n-train", type=int, default=200)
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
+    ap.add_argument("--skip-synthetic", action="store_true")
+    ap.add_argument("--skip-real", action="store_true")
+    args = ap.parse_args()
+
+    device = torch.device(args.device)
+    ok = True
+    if not args.skip_synthetic:
+        ok = part0() and ok
+    if not args.skip_real:
+        ok = part1(args.config, args.n_val, args.n_train, args.seed,
+                   device) and ok
+    print("\nACCEPTANCE parity ALL " + ("OK" if ok else "FAIL"))
+    sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    main()
