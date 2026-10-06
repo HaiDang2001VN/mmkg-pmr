@@ -17,6 +17,7 @@ PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
 # 12-CPU allocation: Python/pandas hot path is single-threaded (writes);
 # the BFS worker carries its own 10 threads. Torch host threads capped.
 export OMP_NUM_THREADS=10
+export PYTHONUNBUFFERED=1
 export MKL_NUM_THREADS=10
 cd /media02/hlhdang/projects/pamr/src
 

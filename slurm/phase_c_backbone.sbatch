@@ -24,6 +24,7 @@ source /media02/hlhdang/tools/uvenv_ws_env.sh
 PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
 # torch host-side thread cap: 12-CPU allocation minus loader/main reserve
 export OMP_NUM_THREADS=10
+export PYTHONUNBUFFERED=1
 export MKL_NUM_THREADS=10
 cd /media02/hlhdang/projects/pamr/src
 
