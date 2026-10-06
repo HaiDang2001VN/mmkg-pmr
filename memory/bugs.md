@@ -36,18 +36,15 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   `projects/uv.lock` (509 pkgs); pamr 1.0.0 import battery OK; registry
   noted. Runtime = direct `…/t251cu121-py312/bin/python -m …`.
 
-### RUNNING at snapshot update (2026-10-06 late)
-- **Job 78298** (ComplEx backbone, gpu03) — RUNNING past 2h53m. Note:
-  gpu03 co-tenant pressure (`wstack` jobs) pushed node free RAM to
-  3.2 GB at one reading — monitor, but the job survived dataset load.
-  On finish: USR1/EXIT stage-sync + slim copyback should land
-  `checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2_train.pt`
-  (check for `stage_` + canonical files).
-- **Job 78320** (batch-size probe) — RUNNING on gpu01 (user decision:
-  probe informs, batch-size change needs explicit approval).
-- **Job 78321** (parity_eval, CPU) — evaluate_kge vectorization parity
-  gate (legacy per-triple vs pooled batched on real val/sampled-train
-  slices). CPU-only jobs run via slurm; login node = login/launch only.
+### RUNNING (wave relaunch, 2026-10-06 ~21:20 +7)
+- **78331** = transe backbone (relaunch, gpu01/02/04 constraint),
+  **78332** = complex backbone (relaunch), **78333** = batch-size probe
+  (fixed script). All PENDING at submit (78298 draining + 4-GPU quota).
+- 78298 killed after 4h13m with ZERO python output: 99.4% single-core
+  python, buffered stdout (pre-unbuffered sbatch) hiding progress;
+  process = the legacy per-triple val-eval grind (each of ~208K val
+  triples rebuilds a ~216K-candidate sorted list in Python). No stage
+  file existed (epoch 1 unfinished) → clean kill, no loss.
 
 ### BLOCKED → NOW UNBLOCKED (verify before use)
 - **Admin GPU-cancel block LIFTED** (18:13 +7): canary 78314 COMPLETED
@@ -61,17 +58,19 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   remains mandatory.
 
 ### NEXT ACTIONS (in order)
-1. **Gate on 78321 parity** (`reports/parity_78321.out`): both parts OK
-   → vectorization accepted. FAIL → diagnose before any wave relaunch.
-2. **Collect 78320 probe numbers** (`reports/probe_bs_78320.out`) →
-   user decides training batch size (locked 512 = June provenance).
-3. **78298 completion** + validate slim-copyback contract
-   (`complex_wikiart_mkg_v2_train.pt`, no optimizer keys, registry
-   manifest + `embedding_scope=train`). If still running: leave alone.
-4. **Relaunch transe backbone** with ALL fixes (PYTHONUNBUFFERED,
-   CPU-copy sampler, vectorized eval, hub-drop, OMP/MKL=10, decided bs).
-5. Waves B (distmult+rotate) + C (struct) → Phase D → Phase E/G →
-   aggregation (§3 below).
+1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
+   + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
+   per-relation exact, overall ≤1e-9) → **vectorization ACCEPTED**.
+   CPU cost-par note: pooled ≈ ref on CPU (~282 vs ~304 s) — the win is
+   GPU-side (per-triple CUDA syncs removed), as measured on 78297.
+2. **Watch 78331/78332/78333 start**; diagnose with the srun /proc
+   toolkit if any job shows zero-CPU/no-output growth. First-epoch
+   stage files should appear within the hour under the vectorized eval.
+3. **Collect 78333 probe numbers** → user decides training batch size.
+4. **Validate slim-copyback contracts** as each backbone finishes
+   (no optimizer keys, registry manifest, embedding_scope=train).
+5. Waves B (distmult+rotate) + C (struct) → Phase D (fixed chain) →
+   Phase E/G → aggregation (§3 below).
 
 ---
 
@@ -364,8 +363,22 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 - **Hub-relation sampler crash** (ef005be) — bounded whole-triple drop
   + keep mask + train-loop alignment; micro-tested 3/3.
 - **Per-triple CUDA syncs in sampler** (d58e57f) — one .cpu() per batch;
-  parity micro-tested. REMAINING: evaluate_kge per-triple .item()
-  (proposed vectorized rewrite, user decision pending).
+  parity micro-tested. evaluate_kge per-triple .item() superseded by
+  the pooled vectorization (below, parity-gated).
+- **Probe bench crash + zombie park** (fc77e6d) — probe step() called
+  compute_logistic_loss with 1-D neg scores (real loop reshapes to
+  (n_kept, num_neg) + aligns keep-rows) → RuntimeError; the non-daemon
+  util-poller then blocked interpreter shutdown → job looked RUNNING
+  ~90 min with zero progress. Hardened: mirror-loop semantics,
+  --num-neg arg, daemon poller + stop.set(), bench_safe FAILED lines,
+  peak-mem reset per point.
+- **78298 legacy-eval grind** (killed, vectorize-first policy) — 4h13m
+  at 99.4% single-core in the per-triple val eval; stdout fully
+  buffered (pre-unbuffered sbatch era). Lesson: zero output + high
+  single-core CPU on an OLD-code job = legacy eval; check the sbatch
+  env era before assuming IO stall. State-class signatures: D+rpc =
+  NFS stall (may self-clear); Sl + futex only = parked threads; R +
+  99% single core = python grind.
 - **Thread/worker etiquette** (a7f410a) — pool caps, BFS 10 threads,
   OMP/MKL caps, PYTHONUNBUFFERED (be433e1).
 - **Stale-name hygiene** — evaluate.py usage line, path comments,
