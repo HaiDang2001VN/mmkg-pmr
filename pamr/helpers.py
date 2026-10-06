@@ -196,53 +196,34 @@ def negative_sampling_per_relation_fast(heads, relations, tails, num_neg_samples
                                         filter_map, relation_to_valid_tails, generator):
     """
     Per-relation negative sampling WITH replacement (WikiArt-v2) - FAST version.
-    
-    Uses rejection sampling to efficiently draw negatives. Samples candidates with
-    replacement and rejects those in the filter set. Always returns exactly
-    batch_size * num_neg_samples negatives. More efficient for large candidate pools.
-    
-    Recommended for WikiArt-v2.
-    
-    Characteristics:
-    - Sampling: WITH replacement (same negative can appear multiple times)
-    - Batch size: Fixed (always batch_size * num_neg_samples)
-    - Method: Rejection sampling from candidate pool
-    - Performance: Faster for large datasets
-    
-    Args:
-        heads: Head entity IDs (batch_size,)
-        relations: Relation IDs (batch_size,)
-        tails: Tail entity IDs (batch_size,)
-        num_neg_samples: Number of negative samples per positive triple
-        filter_map: Dict mapping (head_id, relation_id) -> set of valid tail_ids
-        relation_to_valid_tails: Dict mapping relation_id -> list of valid tail candidates
-        generator: Random generator for reproducibility
-    
-    Returns:
-        neg_heads, neg_relations, neg_tails
-        (Output size always batch_size * num_neg_samples)
+
+    Rejection sampling against the filtered truth set. Whole-triple drop
+    contract: when a triple's pool is fully covered by known truths (hub
+    rows of the downsampled similarity family), the triple contributes no
+    negative for this epoch — the positive is never reused as a negative.
+    The caller aligns the positive side via the returned keep mask.
+
+    Returns (neg_heads, neg_rels, neg_tails, keep_rows) where keep_rows is
+    a bool mask over the input batch marking rows that yielded negatives
+    (in order, so neg tensors pair 1:1 with pos_scores[keep_rows]).
     """
     batch_size = heads.size(0)
     device = heads.device
-    
+
     # Pre-cache per-relation pools as CPU tensors
     pool_cache_cpu = {}
     for r in relations.unique().tolist():
         r = int(r)
         if r in relation_to_valid_tails:
             pool_cache_cpu[r] = torch.tensor(relation_to_valid_tails[r], dtype=torch.long)
-    
-    neg_heads = torch.empty(batch_size * num_neg_samples, dtype=torch.long)
-    neg_rels = torch.empty_like(neg_heads)
-    neg_tails = torch.empty_like(neg_heads)
-    
-    write_idx = 0
-    
+
+    neg_heads_l, neg_rels_l, neg_tails_l = [], [], []
+    drop_rows = []
+
     for i in range(batch_size):
         h = int(heads[i].item())
         r = int(relations[i].item())
-        t = int(tails[i].item())
-        
+
         if r not in pool_cache_cpu:
             # A relation present in a training batch must have a candidate
             # pool. Substituting the positive tail as a "negative" would
@@ -251,46 +232,57 @@ def negative_sampling_per_relation_fast(heads, relations, tails, num_neg_samples
                 "No candidate pool registered for training relation "
                 f"{r}; regenerate the candidate pools"
             )
-        
+
         pool_cpu = pool_cache_cpu[r]
         n_pool = int(pool_cpu.numel())
-        
-        # Get filter set for this (h, r) pair
         filt_set = filter_map.get_tails((h, r), set())
-        
+
+        row_negs = []
+        exhausted = False
         for _ in range(num_neg_samples):
-            # Rejection sampling (usually succeeds on first try)
-            for attempt in range(16):
+            neg_t = None
+            # Rejection sampling (usually succeeds on the first try)
+            for _attempt in range(16):
                 idx = int(torch.randint(n_pool, (1,), generator=generator).item())
-                neg_t = int(pool_cpu[idx].item())
-                if neg_t not in filt_set:
+                cand = int(pool_cpu[idx].item())
+                if cand not in filt_set:
+                    neg_t = cand
                     break
-            else:
-                # Rare fallback: build masked view
-                if len(filt_set) < n_pool:
+            if neg_t is None:
+                # Rare fallback: masked view of the eligible tails
+                if filt_set:
                     bad = torch.tensor(list(filt_set), dtype=torch.long)
-                    mask = ~torch.isin(pool_cpu, bad)
-                    avail = pool_cpu[mask]
-                    if avail.numel() > 0:
-                        neg_t = int(avail[torch.randint(avail.numel(), (1,), generator=generator).item()].item())
-                    else:
-                        raise RuntimeError(
-                            "No eligible tail negative exists for head "
-                            f"{h} under relation {r}; the filtered "
-                            "candidate pool is exhausted"
-                        )
+                    avail = pool_cpu[~torch.isin(pool_cpu, bad)]
                 else:
-                    raise ValueError(
-                        "Every candidate tail for head "
-                        f"{h} under relation {r} is a known positive"
-                    )
-            
-            neg_heads[write_idx] = h
-            neg_rels[write_idx] = r
-            neg_tails[write_idx] = neg_t
-            write_idx += 1
-    
-    return neg_heads.to(device), neg_rels.to(device), neg_tails.to(device)
+                    avail = pool_cpu
+                if avail.numel() > 0:
+                    neg_t = int(
+                        avail[torch.randint(avail.numel(), (1,),
+                                            generator=generator).item()].item())
+                else:
+                    # Hub exhaustion: every pool tail is a known truth.
+                    # Protocol-safe drop for this triple (whole row, so
+                    # num_neg_samples>1 pairing stays coherent).
+                    exhausted = True
+                    break
+            row_negs.append(neg_t)
+
+        if exhausted:
+            drop_rows.append(i)
+            continue
+        for neg_t in row_negs:
+            neg_heads_l.append(h)
+            neg_rels_l.append(r)
+            neg_tails_l.append(neg_t)
+
+    keep = torch.ones(batch_size, dtype=torch.bool, device=device)
+    if drop_rows:
+        keep[torch.tensor(drop_rows, dtype=torch.long, device=device)] = False
+
+    neg_heads = torch.tensor(neg_heads_l, dtype=torch.long, device=device)
+    neg_rels = torch.tensor(neg_rels_l, dtype=torch.long, device=device)
+    neg_tails = torch.tensor(neg_tails_l, dtype=torch.long, device=device)
+    return neg_heads, neg_rels, neg_tails, keep
 
 
 # ==================== Evaluation ====================
@@ -854,7 +846,8 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
         # ========== Training ==========
         model.train()
         total_loss = 0
-        
+        n_loss_batches = 0
+
         for batch in current_loader:
             heads = batch["head_id"].to(device)
             relations = batch["relation_id"].to(device)
@@ -869,8 +862,10 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
                         heads, relations, tails, num_neg_samples,
                         filter_map, relation_to_valid_tails_train, generator
                     )
+                    keep_rows = None
                 else:
-                    neg_heads, neg_relations, neg_tails = negative_sampling_per_relation_fast(
+                    (neg_heads, neg_relations, neg_tails,
+                     keep_rows) = negative_sampling_per_relation_fast(
                         heads, relations, tails, num_neg_samples,
                         filter_map, relation_to_valid_tails_train, generator
                     )
@@ -879,19 +874,39 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
                     heads, relations, tails, model.num_entities, num_neg_samples,
                     filter_map, relation_probs, generator, use_bernoulli=use_bernoulli
                 )
-                
-            neg_scores = model(neg_heads, neg_relations, neg_tails)
-            neg_scores = neg_scores.view(pos_scores.shape[0], num_neg_samples)
-            
-            loss = compute_logistic_loss(pos_scores, neg_scores)
-            
+                keep_rows = None
+
+            if keep_rows is not None:
+                n_kept = int(keep_rows.sum().item())
+                if n_kept == 0:
+                    # Entire batch is hub rows of an exhausted relation:
+                    # nothing to train on this batch.
+                    continue
+                if n_kept < heads.shape[0]:
+                    # Hub rows dropped by the sampler: kept negatives pair
+                    # 1:1 (in order) with the keep_rows positives.
+                    pos_kept = pos_scores[keep_rows]
+                    neg_scores = model(neg_heads, neg_relations, neg_tails)
+                    neg_scores = neg_scores.view(n_kept, num_neg_samples)
+                    loss = compute_logistic_loss(pos_kept, neg_scores)
+                else:
+                    neg_scores = model(neg_heads, neg_relations, neg_tails)
+                    neg_scores = neg_scores.view(pos_scores.shape[0],
+                                                 num_neg_samples)
+                    loss = compute_logistic_loss(pos_scores, neg_scores)
+            else:
+                neg_scores = model(neg_heads, neg_relations, neg_tails)
+                neg_scores = neg_scores.view(pos_scores.shape[0], num_neg_samples)
+                loss = compute_logistic_loss(pos_scores, neg_scores)
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            
+
             total_loss += loss.item()
-        
-        avg_loss = total_loss / len(current_loader)
+            n_loss_batches += 1
+
+        avg_loss = total_loss / n_loss_batches if n_loss_batches else 0.0
         
         # ========== Evaluation ==========
         if (epoch + 1) % evaluate_every == 0:
