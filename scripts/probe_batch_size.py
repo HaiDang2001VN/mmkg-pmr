@@ -42,6 +42,7 @@ def util_poller(stop, samples):
 
 def bench(fn, n, label, stop_util, util_samples, log):
     util_samples.clear()
+    torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
     for _ in range(n):
         fn()
@@ -56,11 +57,27 @@ def bench(fn, n, label, stop_util, util_samples, log):
     return wall
 
 
+def bench_safe(fn, n, label, stop_util, util_samples, log):
+    """Crash-resilient bench: one bad point must not kill the job."""
+    try:
+        return bench(fn, n, label, stop_util, util_samples, log)
+    except StopIteration:
+        raise
+    except Exception as exc:
+        print("ACCEPTANCE probe", json.dumps(
+            {"label": label, "FAILED": f"{type(exc).__name__}: {exc}"}
+        ), flush=True)
+        log.append({"label": label, "FAILED": str(exc)})
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="pamr/configs/wikiart_mkg_v2/transe_clip.yaml")
     ap.add_argument("--batches", type=int, default=60,
                     help="batches per bench point")
+    ap.add_argument("--num-neg", type=int, default=1,
+                    help="negatives per positive (backbone configs use 1)")
     ap.add_argument("--eval-triples", type=int, default=8192)
     ap.add_argument("--batch-sizes", default="512,2048,8192")
     args = ap.parse_args()
@@ -140,7 +157,8 @@ def main():
 
     stop = threading.Event()
     util_samples = []
-    poll = threading.Thread(target=util_poller, args=(stop, util_samples))
+    poll = threading.Thread(target=util_poller, args=(stop, util_samples),
+                            daemon=True)
     poll.start()
     log = []
 
@@ -157,19 +175,19 @@ def main():
         g = torch.Generator().manual_seed(7)
         helpers.negative_sampling_per_relation_fast(
             i["head_id"].cuda(), i["relation_id"].cuda(), i["tail_id"].cuda(),
-            1, filter_map, pools, g)
+            args.num_neg, filter_map, pools, g)
 
     def sampler_cpu():
         i = batches[0]
         g = torch.Generator().manual_seed(7)
         helpers.negative_sampling_per_relation_fast(
             i["head_id"], i["relation_id"], i["tail_id"],
-            1, filter_map, pools, g)
+            args.num_neg, filter_map, pools, g)
 
-    bench(sampler_cuda, args.batches, "sampler@bs512/cuda-inputs", stop,
-          util_samples, log)
-    bench(sampler_cpu, args.batches, "sampler@bs512/cpu-inputs", stop,
-          util_samples, log)
+    bench_safe(sampler_cuda, args.batches, "sampler@bs512/cuda-inputs",
+               stop, util_samples, log)
+    bench_safe(sampler_cpu, args.batches, "sampler@bs512/cpu-inputs", stop,
+               util_samples, log)
 
     # ── 2. full train step at each batch size ──
     for bs in [int(x) for x in args.batch_sizes.split(",")]:
@@ -187,16 +205,27 @@ def main():
             pos = model(heads, rels, tails)
             g = torch.Generator().manual_seed(11)
             (nh, nr, nt, keep) = helpers.negative_sampling_per_relation_fast(
-                heads.cpu(), rels.cpu(), tails.cpu(), 1, filter_map, pools, g)
-            neg = model(nh.to(device), nr.to(device), nt.to(device))
+                heads.cpu(), rels.cpu(), tails.cpu(), args.num_neg,
+                filter_map, pools, g)
+            nh = nh.to(device)
+            nr = nr.to(device)
+            nt = nt.to(device)
+            keep_d = keep.to(device)
+            n_kept = int(keep_d.sum().item())
+            if n_kept == 0:
+                state["n"] -= 1
+                return
+            if n_kept < heads.shape[0]:
+                pos = pos[keep_d]
+            neg = model(nh, nr, nt).view(n_kept, args.num_neg)
             loss = loss_fn(pos, neg)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
         try:
-            bench(step, args.batches, f"trainstep@bs{bs}", stop,
-                  util_samples, log)
+            bench_safe(step, args.batches, f"trainstep@bs{bs}", stop,
+                       util_samples, log)
         except StopIteration:
             pass
 
@@ -216,13 +245,13 @@ def main():
 
         viter = iter(vloader)
         try:
-            bench(score, max(1, args.eval_triples // bs),
-                  f"evalscore@bs{bs}", stop, util_samples, log)
+            bench_safe(score, max(1, args.eval_triples // bs),
+                       f"evalscore@bs{bs}", stop, util_samples, log)
         except StopIteration:
             pass
 
     stop.set()
-    poll.join()
+    poll.join(timeout=5)
     print("\nACCEPTANCE probe-summary", json.dumps(log), flush=True)
 
 
