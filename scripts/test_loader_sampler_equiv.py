@@ -194,8 +194,8 @@ def part_b_sampler(dl, filter_map, pools_train, train_data, batch_size,
     pool = pools_train[small_rel]
     truths = filter_map.get_tails((h0, small_rel), set())
     eligible = sorted(set(pool) - truths)
-    seen = {t for (hh, rr, tt) in neg_hist
-            if (hh, rr) == (h0, small_rel) for tt in [tt]}
+    seen = {tt for (hh, rr, tt) in neg_hist
+            if (hh, rr) == (h0, small_rel)}
     missing = set(eligible) - seen
     # with ~n_trials batches of one row candidate the coverage may be
     # partial if the (h, small_rel) row count in the 60K slice is small;
