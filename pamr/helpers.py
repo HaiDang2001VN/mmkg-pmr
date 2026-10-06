@@ -1044,7 +1044,7 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
         total_loss = 0
         n_loss_batches = 0
 
-        for batch in current_loader:
+        for i, batch in enumerate(current_loader):
             heads = batch["head_id"].to(device)
             relations = batch["relation_id"].to(device)
             tails = batch["tail_id"].to(device)
