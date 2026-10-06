@@ -1,350 +1,458 @@
-# memory/bugs.md — PAMR Defect Register
+# memory/bugs.md — PAMR Defect Register + Campaign State
 
-Why PAMR does not outperform VL-KGE despite consuming frozen VL-KGE embeddings as input. Triage view: fully resolved issues, partially resolved issues, and gaps that have not been touched.
+Why PAMR does not outperform VL-KGE despite consuming frozen VL-KGE
+embeddings as input. Triage + the post-submission experimental campaign
+(SOICT 2026 submitted 2026-09-20, paperv7.tex; notification 2026-10-12).
 
-Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`, `pamr/models/pr/preprocess.py`, `pamr/models/pr/preprocess.cpp`, `pamr/models/embedding/base.py`, `pamr/dataloader.py`, `pamr/scripts/{prepare,train_embedding,evaluate}.py`, `pamr/models/vlkge/score.py`, `pamr/configs/wikiart_mkg_v2/*`, `configs/pr/pamr.yaml`, artifact evidence in `checkpoints/preproc/wikiart_mkg_v2/full/pamr/`.
-
----
-
-## 1. Resolved — in previous turns
-
-Code and configuration work is complete; only artifact regeneration/retraining (Section 3) remains.
-
-### Relation vocabulary and IDs
-- **Canonical 40-ID registry** — implemented in `pmr/relation_registry.py`. Raw relations get stable lexical IDs; every other asymmetric relation gets an internal inverse integer ID without inventing public names; categories (`undirected`, `directed_existing_inverse`, `directed_internal_inverse`) and an involution invariant are asserted at construction; a registry hash + manifest is persisted and consumed by `prepare.py`, `preprocess.py`, and checkpoints. *(Resolved in a previous turn.)*
-- **P0 — Entity/relation ID-space mismatch between BFS graph and PAMR.** Was: `preprocess.py:179-183` built a sorted ID space while `KnowledgeGraphDataLoader` used first-occurrence order; `test_paths.csv` qid0 contained node `1062` typed `2` (artist), impossible in DataLoader space; range-set validation passed silently, so every interior node and edge token was the embedding of the wrong entity/relation, degenerating PAMR into a noisy pointwise scorer (observed MRR 0.379). Now: `preprocess.py` rebuilds the exact DataLoader configuration used by `prepare.py`, validates name↔ID round-trips of every query row, and writes `entity_mapping.csv`, `relation_mapping.csv`, `relation_manifest.json` beside split-scoped graphs. *(Resolved in a previous turn; artifact regeneration pending — Section 3.)*
-- **P5 — `add_inverse_relations` config corruption.** Was: `complex_clip.yaml:33` held a YAML string-pair instead of a dict, silently yielding 22 relations patched ad hoc by zero-row extension. Now: all WikiArt configs use `inverse_relation_pairs` (`isInfluencedBy`↔`isInfluencedOn`, `isPupilOf`↔`isTeacherOf`) and `symmetric_relations`; `add_inverse_relations` raises if used; zero-row surgery in `train_pamr.py`/`vlkge/score.py` replaced by strict relation-count + registry-hash rejection; `exclude_relations_eval` no longer lists deprecated names. *(Resolved in a previous turn.)*
-
-### Path pipeline
-- **P2 — Undirected BFS with direction-agnostic relation tokens.** Was: reverse traversal fed the base relation ID with no direction info; parallel edges picked an arbitrary `unordered_map` element for `edge_type`; `node_type[u]` was overwritten per triple line. Now: edges carry a canonical oriented relation ID from the registry inverse map, reverse traversal has correct VL-KGE inverse semantics, adjacency is sorted with deterministic tie-breaks, and node types are pre-derived in a full-graph pass before serialization. The direction bit remains only as physical-traversal metadata. *(Resolved in a previous turn.)*
-- **P7 — Silent skips from `-1` edge types.** Was: backward-BFS endpoint lookup could fail ⇒ `edge_type=-1` ⇒ rows folded silently into `total_skipped`. Now: edge types are collected during BFS reconstruction via ParentLink records (no ambiguous endpoint lookup) and the merge errors out when worker output lacks the explicit field layout. *(Resolved in a previous turn.)*
-
-### PAMR data and model contract
-- **P1 — Positive-path destruction in `PAMRPairedDataset`.** Was: `pos_samples[qid] = s` kept only the last positive, queries without negatives lost their positives, and pairing was frozen per epoch. Now: positives are kept in lists, deterministically cycled across negatives, and surplus or negative-free positives are retained as standalone samples with gradient-safe loss. *(Resolved in a previous turn.)*
-- **P2b — Multi-path train/eval mismatch (probe-level).** Was: positive multiplicity collapsed in training while all positives persisted at eval; the first positive row counted against the rank. Now: paths CSV carries explicit `row_index`, `candidate_tail_id`, `query_relation_id`, `is_positive`; labels are never re-inferred; proposed per candidate tail (`max`) via `_aggregate_candidates`/`compute_rank_metrics(all_cand_ids=...)`. Full candidate-set batching per query is still batch-limited (Section 2). *(Resolved in a previous turn; sampler gap open.)*
-- **P3 — `path_nodes != 0` used as the padding test though entity 0 is a real entity.** Was: `_make_padding_mask`/`_find_r2_positions`/`_compute_reconstruction_l2` counted non-zero IDs as validity, truncating paths touching entity 0. Now: all valid-length logic derives from the explicit token mask. *(Resolved in a previous turn.)*
-- **P4 — Frozen embeddings attenuated by the fusion bug.** Was: average fusion divided by the count of enabled modalities, with inductive structural masking counting as present, halving textual-only embeddings (`(0 + textual)/2`) and collapsing feature-less entities to zero vectors. Now: the denominator counts present modality slots only (`seen_in_train` respected; weighted renormalization matched). *(Resolved in a previous turn.)*
-- **PAMR score contract** — `pamr_score = vlkge_score(head, qrel, candidate_tail) + path_residual`: readout-MLP final layer, `no_path_residual`, and `recon_gate` all zero-initialized; frozen VL-KGE child stays permanently in eval mode via a `PAMR.train()` override; entity tokens carry the full real+imag ComplEx/RotatE representations; `probe_head_ids` explicit so no-path probes never fabricate embeddings from entity ID 0. *(Resolved in a previous turn.)*
-- **Candidate-tail ranking/objectives** — three objectives are selectable and operational (`grouped_pairwise`, `listwise_softmax`, `binary_candidate`); `min_eval_coverage` gates best-checkpoint selection; scores CSV carries candidate identity. *(Resolved in a previous turn.)*
-- **Minor: spurious `node_type_emb` padding bias** — padding row and direction-embedding index 0 zero-initialized. *(Resolved in a previous turn.)*
-- **Minor: O(n²) CPU ranking loss** — replaced by grouped tensor ops in candidate-level modes (perf note). *(Resolved in a previous turn.)*
-
-### VL-KGE training and data
-- **Bernoulli corruption ignored** — Was: `relation_probs`/`use_bernoulli` passed in but corruption was a fixed 50/50 batch mask. Now: per-triple relation-specific corruption probability; legacy behavior preserved when `use_bernoulli=False`. *(Resolved in a previous turn.)*
-- **Positive tail reused as a negative** — Was: `negative_sampling_per_relation_fast` substituted the positive tail when a pool was missing or exhausted, silently corrupting the loss. Now: fail-fast contract (`RuntimeError`/`ValueError`). *(Resolved in a previous turn.)*
-- **Filter-map key collision** — Was: `(h,r)->tails` and `(t,r)->heads` shared one dict. Now: `DirectionalFilterMap` with `get_tails`/`get_heads`, wired through training, `evaluate_kge`, and `predict_heads`. *(Resolved in a previous turn.)*
-- **CLI inverse syntax mismatch** — Was: `--add_inverse_relations "a:b"` strings passed to a dict-only loader. Now: `--inverse_relation_pairs` converts `"a:b"` entries to a mapping; `--symmetric_relations` added; YAML mappings take precedence through `extra_config`. *(Resolved in a previous turn.)*
-- **Embedding scopes** — `train` / `train_val` / `train_val_test` (diagnostic oracle) implemented in `train_embedding.py` with scope-local loaders, quick-eval frames, scope-local negative pools, and checkpoint metadata (`embedding_scope`, registry manifest, entity/relation mapping hashes). *(Resolved in a previous turn.)*
-- **Split-aware truth filtering** — `compute_filter_maps_by_scope` feeds `prepare.py`: train filters train truths, val filters train+val, test filters train+val+test; inverse facts materialize inside their source split. *(Resolved in a previous turn.)*
-- **Exact negative sampling** — set-subtraction requires K eligible candidates; rejection sampling completes deterministically from the eligible set; incomplete queries are skipped and counted, never silently underfilled. Relation metadata, split/candidate policies, and registry hash are persisted in `metadata.json`. *(Resolved in a previous turn.)*
-- **Path-graph split leakage** — Was: BFS graph loaded the raw all-split CSV. Now: per-split scoped graphs (`graph_{split}.csv` + `graph_*_meta.json`), defaults train for val and train+val for test; transductive diagnostics require an explicit `path_graph` section. *(Resolved in a previous turn; runtime verification deferred — Section 3.)*
-
-### Inspection wave 2026-09-19 — deep no-run audit findings (F-numbered)
-- **F1 — `NameError` in `_aggregate_candidates`.** Was: the signature was `(scores, query_ids, candidate_tail_ids)` while the body read `labels[gather]`, so every candidate-level loss mode (`grouped_pairwise` prod default, `binary_candidate`, `listwise_softmax`, `reconstruction`) crashed on the first `compute_loss` with `NameError: name 'labels' is not defined`. Now: probe labels are threaded through both `compute_loss` call sites; verified by a torch micro-test on grouped max-aggregation. *(Resolved in this wave.)*
-- **F2 — `pamr_collate` built but never returned `probe_head_ids`.** Was: the return tuple carried 11 tensors against a 12-name unpack in `train_pamr.py` (train/val/test sites) → `ValueError: not enough values to unpack` at the first batch in any loss mode. Now: 12-field contract with `probe_head_ids` at index 8, `hops` at 9, `has_path` at 10, `token_mask` last, verified against the exact unpack. *(Resolved in this wave.)*
-- **F18 — mixed path/no-path padding crash** (found by the collate micro-test). Was: `pad_edges[i, :N-1]` with `N=0` sliced `[:-1]` — all-but-last column — instead of empty, so any batch mixing path and no-path probes with `max_N >= 2` raised a shape RuntimeError. Now: `edge_len = max(N-1, 0)` clamp. *(Resolved in this wave.)*
-- **F3 — merge-step positional unpack scramble** (`preprocess.py`). Was: `row_meta` tuples were `(query_id, head_id, tail_id, relation_id, is_positive)` but the unpack bound `candidate_tail_id ← head_id`, `query_relation_id ← tail_id`, `is_positive ← relation_id`, `query_head_id ← is_positive` — silently wrong columns in every merged paths row (path probes crashed downstream, no-path probes carried head=entity 0/1 and label=relation id). Now: keyed probe records (dicts) — no positional unpack anywhere in the merge. *(Resolved in this wave.)*
-- **F4 — stale missing-path worker row layout** (`preprocess.cpp:321`). Was: unreachable probes emitted `qid;-1;;;;;row_index` (old contract), so the merge parsed `row_index=-1` → RuntimeError, aborting path extraction at the first unreachable probe. Now: emits `qid;row_index;-1;;;;`. *(Resolved in this wave.)*
-- **F5 — self-probe rows crashed sample building.** Was: the `head == tail` C++ branch emitted `hops=0` with two nodes (`"h,h"`), violating the `len(nodes)==hops+1` sample contract whenever a sampled candidate equaled the query head. Now: self-probes emit the standard no-path record (per interview decision: no self-edge exists, so no-path is semantically correct and keeps the direct VLKGE score + learned residual); `self` is a subset of unreachable and no longer double-counted in the run summary. *(Resolved in this wave.)*
-- **F10a — worker failures swallowed at merge.** Was: failed C++ threads only printed a WARNING; their probes silently vanished from the paths CSV (shrinking candidate sets, possibly dropping positives while negatives survived), and nothing verified output completeness. Now: failed threads abort the split before merge, and the pure `audit_probe_completeness` helper enforces every prepared probe exactly once (micro-tested for complete/missing/duplicate cases). *(Resolved in this wave.)*
-- **Evaluator centralization (closes Section 2 gap 2).** Was: `evaluate.py` computed `rank_ns = sum(scores >= pos_score) + 1`, double-counting the selected positive per tie, with a second, divergent evaluator in `train_pamr.py`. Now: `pmr/ranking.py` is the single shared ranker (strict/non-strict corrected semantics, best-positive selection, candidate-tail aggregation, per-relation Accuracy); `evaluate.py` is rewired onto it and `train_pamr.py` passes `rel_for_qid` explicitly (module-global removed). Micro-tested: tie cases, multi-positive queries, candidate aggregation, exclusion, no-positive skips. *(Resolved in this wave.)*
-
-### Inspection wave — runtime bundle (Phase 2, resolved in this wave)
-- **Eval batch size no longer tied to the train batch size** — Was: `train_pamr.py` used one `batch_size` (prod: 8) for all three loaders, so full val/test enumeration ran in 8-probe batches. Now: `eval_batch_size` (default 1024; `pamr.yaml` explicit) drives val/test loaders. *(Resolved in this wave.)*
-- **Dead all-splits filter map removed** (`prepare.py`) — Was: `compute_filter_map()` built two defaultdicts over the ~16.6M materialized rows and was never consumed (scope maps are built per split). Now: removed. *(Resolved in this wave.)*
-- **Vectorized inverse materialization** (`dataloader.py`) — Was: an 8.3M-row `itertuples` Python loop, re-executed in every process that constructs a `KnowledgeGraphDataLoader` (5+ times per experiment chain). Now: vectorized rename/concat + dedup; micro-tested for public inverse names, dedup precedence of raw rows, and internal-inverse `None` names. *(Resolved in this wave.)*
-- **v4 sample-cache manifest** — Was: `v3` caches validated only via file mtimes and used a 120-char truncated whitelist tag (collision-prone); no registry/policy identity at load time. Now: cache suffix `v4`, whitelist tag is a content hash, and the cache payload carries a manifest (`format`, `registry_hash`, `num_relations`, `max_hops`, `whitelist_hash`) validated at load — mismatched caches rebuild instead of silently reusing. *(Resolved in this wave; closes the Section 2 cache-manifest gap.)*
-- **Per-relation path/no-path coverage columns** — Was: counts existed only at dataset level. Now: `per_relation_path_coverage` (probes, path/no-path/positive probes, queries, candidate tails, mean paths per candidate, per relation, per split) is written into `pamr_training_metrics.json` under `path_coverage`; helper micro-tested. *(Resolved in this wave; closes the Section 2 per-relation-reporting gap.)*
-- **Registry acceptance script** — New `pmr/scripts/check_registry.py` verifies raw/total counts, inverse involution, recomputed-vs-persisted hash, and public-vocabulary integrity against a live config; runs on the compute machine with the real CSV. *(Resolved in this wave; closes the Section 2 acceptance-script gap.)*
-
-### Inspection wave — train/eval evidence + BFS (Phase 4, resolved in this wave)
-- **F7 — query-edge masking implemented (closes the B1 operational half).** Was: train positives sat in their own path graph, so BFS returned the trivial direct edge (hops=1) while val/test positives never have that edge — a residual-head shortcut that transfers poorly. Now (per interview): the probe's own edge — the query relation and its registry inverse between head and tail, in both orientations — is masked in **every** split via `path_graph.mask_query_edges: true` (default), making val/test behaviour unchanged (scopes already exclude own facts) while train evidence matches eval; the target-traversal rule is one uniform flag (`allow_target_relation_traversal: true` = non-own target edges traversable everywhere; `false` denies all target edges in every split). The Python wrapper passes the policy and relation IDs to the C++ worker, and both meta manifests record it. *(Resolved in this wave.)*
-- **F14 — forward-BFS reuse + drain fix.** Was: each of a query's ~11 probes recomputed the identical forward BFS and the loop stopped when either frontier drained (reachable tails could be mislabeled `hops=-1`). Now: forward BFS from the head runs once per query and is reused by all its probes; backward BFS runs per probe with meet detection against the forward tree and an explicit depth bound; probes whose own edge is present (in practice the positive) fall back to a fully masked per-probe bidirectional BFS. Verified end-to-end on a synthetic graph (mask on/off, deny, self, reverse orientation). *(Resolved in this wave.)*
-- **F13 — thread RAM documented** — each worker builds its own full-split adjacency; the paths config now states the ≈ num_threads × graph-size budget. *(Documented in this wave; per-machine tuning remains with the user.)*
-
-### Inspection wave — model refinement (Phase 5, resolved in this wave)
-- **F8 — per-relation no-path residual.** Was: one global learnable scalar shifted every no-path candidate equally across all relations. Now: zero-initialized per-relation `nn.Embedding(num_relations, 1)` (fallback to the shared scalar when no relation count is available); the frozen VLKGE baseline contract and the Decision Record are intact (residual is exactly 0 before training). Micro-tested on a stub model: zero-init parity, per-relation offsets, gradient flow. *(Resolved in this wave.)*
-- **F9 — objective scale (decision recorded, no code change).** The margin-1 hinge on absolute fused scores remains for the first retrain (single-variable A/B against frozen VLKGE); scale-aware margins and contrastive/temperature variants stay with the planned B3 ablation. *(Decision recorded in this wave.)*
-- **F17 — accepted hot loops** — per-column token assembly, reconstruction L2 loop, and per-triple `pool_set` rebuilds remain; they are bounded (max_N=6, smoke-only, rejection fallback) and were deliberately left untouched. *(Accepted in this wave.)*
-- **Dead code removed** — `load_vlkge_model` (superseded by `train_pamr.py`'s inline loader) and the unused `_make_padding_mask` are gone. *(Resolved in this wave.)*
-
-### Worker v2 hardening — full re-read audit (resolved in this wave)
-A complete re-read of `preprocess.cpp` (861 lines) and `preprocess.py` after the v2 rewrite found no memory leaks (all RAII, clean destruction on every path) but four defects/robustness gaps, now fixed and verified:
-- **C1 — empty-graph/OOB-head crash in the shared forward BFS.** Was: `bfs_levels` for the group head ran before the per-probe OOB guard, so an edge-less graph (`g.n == 0`) or a head beyond the node range indexed empty arena vectors (UB crash; v1 tolerated this as hash-map misses). Now: the shared search is skipped when `head_probe.head_id >= g.n`; every such probe is OOB-guarded and emitted as no-path. Regression fixture: edge-less graph → rc=0, all probes `-1`.
-- **C2 — negative/oversized fields crashed the CSR build.** Was: `degree[f[0]]++` with a negative node id wrote out of bounds, and `pack_rev` with a relation id ≥ 2^30 corrupted the packed direction bit. Now: `graph_row_valid` (non-negative node ids, packed relation ids < 2^30, full-int types after widening `types` to int32) is applied identically in all three loading passes; skipped rows are counted and summarized as one `[Warn]` line. Regression fixture: negative-id and oversized-relation rows are warn-skipped and the valid search is intact.
-- **C3 — LineReader fabricated a premature EOF on a >chunk line.** Was: a "line" filling the whole 16 MB chunk with no newline made `read()` return 0 and set `eof_` while the file continued (silent data loss for pathological input). Now: the buffer doubles when full instead of reading zero bytes.
-- **C4 — negative `max_hops` crashed the fanout-table allocation** (`vector` size_t conversion). Now clamped to 0 (every probe becomes no-path, rc=0).
-- Python cosmetics: module docstring updated to the v2 process model, unused `numpy` import removed, the merge's legacy `h == 0` self-count branch annotated (v2 emits self-probes as `hops=-1`).
-- Re-verified after hardening: 7/7 v1-vs-v2 equivalence cases MATCH, calibration rc=0, out-of-range warns appear, negative-hops fixture rc=0, and v2 remains byte-deterministic across runs.
-
-### Phase 0 (2026-10-03) — provenance resolution + leakage-verification runner
-Executed toward the locked experiment plan; local-only work (no training, no C++).
-- **Experiment plan locked (interview round 1 + backbone round):** compute = FIT cluster (Slurm, A100 40GB, ≤2 concurrent jobs × 2 GPUs, env being prepared by another agent — GPU phases wait); regen matrix = FULL (TransE, ComplEx, DistMult, RotatE + structural-only backbone + PAMR + PAR); backbone scope = train everywhere (no matched-scope pairing); protocol = 10 negatives × 2 seeds (42 + 1, n=2 minimal std; baselines single-seed); ablations = core 5 (frozen-vs-tuned, K=3, depth 12, cls readout, B3 contrastive/temperature); camera-ready = correct the numbers if accepted; backbone = **TransE-faithful**.
-- **Provenance resolved from synced artifacts (resolves the shuffled-value forensics):** pamr_training_metrics.json records `vlkge_checkpoint = /workspace/checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2.pt` and all 22 PAMR run logs echo `entity=768, rel=1536 → d_model=1536` (ComplEx-family; TransE relations would be 768) — scenario A's "reported runs used frozen TransE" recollection was WRONG about the artifacts. Per the user's decision, the regeneration is TransE-faithful: results are a NEW configuration relative to the published numbers; the ComplEx evidence stays here as the provenance of the published numbers.
-- **Old-test-eval degeneracy confirmed:** the June campaign's post-training test eval prints MRR=1.0000 on 235 queries — the old all-splits test path graph contained test edges (trivial direct edge). The locked scope+masking design removes exactly this.
-- **Split facts pinned:** count.csv (74+76+26+26=202) matches the **val** split — the paper's Table 1 evaluates val (202 whitelist queries, 2,215 valid probes); the test set has 238–239 queries (2,549 probes). The earlier "239-vs-202 discrepancy" is a split-shape difference, not an error.
-- **`pamr/scripts/verify_paths.py` (new)** — the three B1 structural assertions from artifacts only: (A) scope hygiene (no excluded fact's own edge — relation or registry inverse, both orientations — inside the split-scoped graph; exclusion map streamed from the raw triples CSV with a frozenset pair index); (B) own-edge non-usage in emitted paths of ANY split + `len(nodes)==hops+1` / `len(edge_types)==hops` sample contract + per-split probe completeness (each prepared probe exactly once); (C) candidate identity — PAMR↔VL-KGE scored CSVs cover identical rows (same query sets, per-query row counts, per-query positive multiset) and PAMR candidate tails match prepared rows (gold counts cross-checked against the prepared queries CSV when supplied). rc=0 clean / 1 violations. Micro-tested: 5 synthetic worlds (clean, own-edge-detected, scope-leak-detected, completeness-detected, identity-aligned/detected).
-- **Rename sweep (`pmr` → `pamr` leftovers):** 47 fatal `pmr.` import refs repaired across 14 modules (pamr/__init__.py, dataloader.py, helpers.py, models/*, scripts/* — `import pamr` round-trips); pyproject entry points + package-data rewired; the wikiart regen chain configs moved to the workspace-relative convention (`../data/…`, `../checkpoints/…`, resolving via resolve_config_paths candidate 2 = repo root); the second freeze loop in `train_pamr.py:298` gated on the flag; wn9_img/wikiart_mkg_v1 dataset configs retain their rename leftovers — out of scope for this campaign, noted here.
-- **Second freeze loop repair** — `train_pamr.py` had its own `p.requires_grad = False` loop outside the model which would have silently defeated `fine_tune_backbone`; both sites now gate on the flag (model `__init__` + script), and trainable-vs-frozen params are printed and logged (`fine_tune_backbone`, `lf_temperature` keys in `pamr_training_metrics.json`).
-- Torch micro-tests via the graphml env: default freeze (no grad to backbone), fine-tune split (feature table frozen, structural/relation trainable, backward reaches vlkge), and listwise temperature (temp=1.0 equals raw softmax; temp=0.1 sharpens and differs). Full package py_compile OK.
-
-### Phase 0 audit + defect round (2026-10-03) — READ FIRST after compaction
-
-The Phase 0 output was audited; two critical defects were found and now fixed. Verification policy for this round: ast/compile + logical determination only (no local runs — the workstation was starved).
-
-**Fixed — `pamr/scripts/train_pamr.py` missing `def main():` (CRITICAL).** The entire training body (1-indexed 117–989) was unreachable dead code inside `resolve_config()` after its `return`. Fix: inserted `def main():` right after the return; the body was already at correct 4-space function indentation (no dedent needed — the first transform wrongly dedented to 0-indent, caught by ast.parse before the corrupted write was accepted; the file was restored via `git checkout` and the insert applied). Verified: resolve_config 106–117, main 118–990, `if __name__ == "__main__"` calls `main()` (992–993), `PYTORCH_CUDA_ALLOC_CONF` reachable as main's first statements, package-wide sweep finds ZERO unreachable statements after returns, py_compile OK.
-
-**Fixed — `pamr/scripts/verify_paths.py` check_meta registry-hash false mismatch (CRITICAL).** The per-key cross-check loop previously compared graph meta's top-level `relation_registry_hash` against REAL paths meta, where the hash is NESTED (`relation_registry.manifest.registry_hash` — `to_dict()` adds it inside) — every real artifact split would falsely FAIL. Now: `graph_hash` = graph meta top-level; `paths_hash` = `(paths_meta["relation_registry"] or {}).get("registry_hash")`; the loop covers only path_graph_scope / mask_query_edges / allow_target_relation_traversal. Verified by AST: loop excludes the key; nested comparison present.
-
-**Hardened — check A gains registry-inverse ids.** `build_exclusion_index` loads `inverse_relation_id` (str→int) from the artifact's own paths-meta manifest and adds each excluded fact's registry-inverse id to the pair's forbidden set (try/except per entry; degrades to raw-id-only if the manifest is missing). This matches the docstring's promise; no false-negative today (the graph file never materializes inverses — the C++ does at load), but the audit is now bulletproof against future pipeline changes.
-
-**Policy — `requirements.txt` relaxed to version floors** (per user: no strict matching on all libraries; main ones keep floors): `torch>=2.6`, `pandas>=2.2`, `numpy>=1.26`, `transformers>=4.48`. The exact campaign environment is selected on FIT after its preparation completes (see the FIT handoff below).
-
-**Repointed — all smoke chains to the TransE train-scope base (user instruction).** `configs/pr/smoke_pamr.yaml` + `smoke_pamr_recon.yaml` now carry `vlkge_config: ../wikiart_mkg_v2/transe_clip.yaml` + `vlkge_checkpoint: …/transe_wikiart_mkg_v2_train.pt` (with stale d_model/heads comments fixed to 768 / 96 per head). `configs/eval/smoke_score.yaml` (self-contained) additionally swapped the inline arch `model: ComplEx` → `model: TransE` + TransE-specific keys (`p_norm: 1`, `normalize_relations: true`, `margin: 12.0`) — otherwise a ComplEx arch would load a TransE state dict and crash on key mismatch. Ablation configs already inherited TransE (derived after the repoint). YAML-validated.
-
-**Hop flattening confirmed (user): prod and h3 flatten the SAME way.** Both sbatch chains flatten the preprocess run dir (`<base>/<ts>/` → `<base>/pamr/`) identically; the committed configs' paths_dir conventions already agree.
-
-**Test fixture mirrored to real shapes** (temp dir): paths-meta writer now carries the nested manifest (raw names + inverse ids + registry_hash) instead of the vacuous top-level duplicate, and graph meta carries the top-level hash + target_relation_ids.
-
-**Untouched by scope (noted):** legacy `configs/eval/vlkge_score.yaml` (absolute `/workspace` path + complex checkpoint), `pathlen_*_eval.yaml` chain, wn9_img/wikiart_mkg_v1 configs (pmr/ rename leftovers), user's `" 2.yaml"` duplicates.
-
-**VC state (stale as written; corrected 2026-10-04):** the fix round was committed at `d4c2d23` with the registers, and the §5 reference mapping landed at `ba7c335` — for the authoritative snapshot see §19 and `git log`.
+Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
+`pamr/scripts/train_embedding.py`, `pamr/helpers.py`, `pamr/dataloader.py`,
+`pamr/scripts/prepare.py`, `pamr/scripts/verify_paths.py`,
+`pamr/models/vlkge/score.py`, `pamr/models/pr/preprocess{.cpp,.py}`,
+`pamr/configs/**`, artifact evidence in
+`checkpoints/preproc/wikiart_mkg_v2/full/pamr/`.
 
 ---
 
-## 2. Partially resolved — code present, known gaps
+## 0. READ-FIRST — state snapshot (2026-10-06, compaction entry point)
 
-- **P6 — Metric and protocol asymmetry vs VLKGE.** Was: strict-vs-non-strict tie semantics diverged, evaluation conditioned on BFS reachability only (202 evaluated val queries, Hits@10≈0.97 blocks), and `mode: train_eval` accidentally filtered PAMR training instead of eval-only as commented. Since then: the relation filter mode semantics are explicit and enforced, PAMR reports candidate coverage and ranks candidate tails, tie handling is centralized in `pamr/ranking.py` (Section 1), and the small-block conditioning is documented via coverage. Remaining gap:
-  1. score VL-KGE on exactly the same split-local target candidate set as PAMR — CLOSED by decision (2026-10-03, interview: 10-neg × 2 seeds; full-pool ranking declined) for the identity half: `pamr/scripts/verify_paths.py` check C now proves both score CSVs cover identical rows + candidate tails (runs on regenerated artifacts in Phase B/C). The full-filtered-pool scorer stays unimplemented by decision.
+### COMPLETE and verified
+- **Phase A** (FIT staging): tree + data cksum/md5-verified on
+  `/media02/hlhdang/projects/pamr/`; pyproject floors; preprocess.o
+  compiled (g++ 11.4, `-std=c++23 -O3 -pthread`).
+- **Phase B** (CPU regen) + **pandas-3 revalidation**: job 78118 (9m44s,
+  pandas 2.3.3) and job 78287 (23m54s, pandas 3.0.6 + torch 2.5.1) both
+  ALL GREEN: registry PASS (22 raw / 40 total, hash `ff50ee5aabe9ba5e…`),
+  prepare 709/202/239 queries (K=1/10/10, 0 skips), BFS prod
+  1,417/2,214/2,606 found, BFS h3 1,411/178/213, flatten to
+  `full/pamr` + `_h3/pamr`, **verify_paths A/B PASSED on all 3 splits for
+  BOTH configs**. The pandas-3 artifacts are canonical for Phase C.
+- **Phase C0** (machinery smoke, CPU): job 78141 FULLY GREEN — synth ckpt
+  (via get_model, feature-aligned) → score.py → evaluate.py → train_pamr
+  1 epoch on real paths (~4 min).
+- **Contract migration** (uv WORKSPACE era, FINAL): one shared venv
+  `uvenvs/t251cu121-py312` (py3.12.14, torch 2.5.1+cu121 trio, numpy
+  2.5.3, pandas 3.0.6, sklearn 1.9.1); workspace members [ejepwm,
+  DreamZero-Project-IML, akg-sv, **pamr/src**]; THE union lock
+  `projects/uv.lock` (509 pkgs); pamr 1.0.0 import battery OK; registry
+  noted. Runtime = direct `…/t251cu121-py312/bin/python -m …`.
 
-Closed by this wave (moved to Section 1): the cache manifest gap (v4 caches now embed and validate the registry/split-policy hashes), batch-limited candidate grouping (the bucketed query-group sampler guarantees complete candidate groups per batch), per-relation coverage reporting (`path_coverage` in `pamr_training_metrics.json`), and the registry acceptance script (`pamr/scripts/check_registry.py`).
+### RUNNING at compaction time
+- **Job 78298** (ComplEx backbone, gpu03, started 16:12 +7) — was at
+  2h09m elapsed, healthy but slow (old in-memory code: CUDA-input
+  sampler, buffered logs, no eval_batch_size). Expect completion ≈ 5-8 h
+  total. On finish: USR1/EXIT stage-sync + slim copyback should land
+  `checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2_train.pt`
+  (check for `stage_` + canonical files; the vlkge dir was EMPTY at
+  last check).
 
----
+### BLOCKED → NOW UNBLOCKED (verify before use)
+- **Admin GPU-cancel block LIFTED** (18:13 +7): canary 78314 COMPLETED
+  normally; the other agent's `wstack` job (78316, gpu03) also runs.
+  Earlier (~17:00-17:50 +7) ALL new GPU submissions were insta-cancelled
+  by root (3 probes + 1 canary, "CANCELLED by 0"); watch UI showed a
+  "Gia hạn thời gian sử dụng (Renew Lease)" banner. Re-verify with a
+  canary if anything looks off again.
+- **Disk recovered**: /media02 free went 7.5 GB → 2.2 GB (crisis) → 166 GB
+  (communal cleanup). Pre-flight `df -h /media02` before any >5 GB write
+  remains mandatory.
 
-## 3. Not touched
-
-- **Artifact regeneration (Phase 6)** — nothing has been re-run: old query CSVs, all-split path CSVs, `*.v2.samples.pkl` caches, preprocessed `graph.csv`, and both old VL-KGE (22 relations) and PAMR checkpoints remain on disk and are invalid under the new contract. Mandatory on compute:
-  1. run `pmr/scripts/check_registry.py --config configs/wikiart_mkg_v2/complex_clip.yaml --expect-raw 22 --expect-total 40`;
-  2. compile `preprocess.cpp` (worker v2: one process with `num_threads` internal threads over one shared CSR adjacency, fast in-place CSV parsing, flat epoch-stamped BFS arenas, exact-duplicate edge dedupe; part-file output contract unchanged, partition is contiguous group ranges);
-  3. `prepare.py` → new query CSVs (target relations only, exact-K negatives). Memory note: scope truth maps are built with `relation_ids` restricted to the target relations under `train_eval` (full-graph maps over 16.6M materialized triples OOM-killed a 12.7 GB Colab runtime at ~7.4 min, rc=-9 with a buffered-empty log), and the DataLoader now releases its raw frame after construction;
-  4. `preprocess.py` → split-scoped `graph_{train,val,test}.csv`, per-probe masked train paths, enriched `*_paths.csv` + `*_paths_meta.json`;
-  5. retrain VL-KGE scopes (`train`, `train_val`, optional `train_val_test` oracle) with the 40-ID registry;
-  6. retrain PAMR per selected scope with `*_v4.samples.pkl` caches (group batching on, `min_eval_coverage` 0.95, `patience` 5, per-relation no-path residual).
-- **Runtime structural checks** — runner EXISTS (`pamr/scripts/verify_paths.py`, Phase 0): "no validation/test edge inside main val/test path graphs", "own edges masked in every split's paths", and identical candidate tails between VL-KGE and PAMR score CSVs are all checked from artifacts. Execution is deferred only because it depends on regenerated artifacts (Phase B/C on FIT).
-- **bfs v3 sweep (27-point grid)** — the benchmark notebook now carries the v3 batch: `SWEEP` = hops {2,3,5} × fanout {10,50,100} × decay {0.2,0.5,1.0} (27 configs), rows tagged `worker_version="v3"` (run-batch identity; the worker binary is unchanged from v2 — v1 was never measured, v2 = the 12-point run). The export cell merges & appends: existing `assets/bfs.csv` (12 v2 rows, all complete) plus the 27 v3 rows, deduplicated per (worker_version, hops, fanout, decay) keeping the newest — one cumulative CSV. Cells 7-8 gain validity guards that reuse the prepared val queries and the val fixture set when a previous run in the same Colab runtime is still valid (metadata + manifest checks), falling through to a full re-prep otherwise. Measured v2 baselines the v3 grid resolves: `load_wall_s` is a constant 3.5 s (single shared CSR, peak RSS ≈ 205-227 MB total) and reachability is dominated by `max_fanout` (fanout 10 finds ~4% of the 2,222 val candidates at hops=3; fanout 100 finds ~99.4%), so the new points resolve the decay axis and the hops=2 short-evidence regime.
-- **Paper-metric refresh** — blocked on the regenerated, leakage-safe comparison.
-- **B3 contrastive/temperature objective** — deferred by decision (F9); the scale-aware-margin variant also lives there.
-
----
-
-## Decision Record
-
-- No relations are assumed symmetric by default.
-- Existing inverse pairs are `isInfluencedBy` ↔ `isInfluencedOn` and
-  `isPupilOf` ↔ `isTeacherOf`.
-- Every other raw relation receives an internal inverse integer ID without
-  a new public relation name.
-- The legacy public `hasCreatedArtwork` relation is deprecated.
-- Raw relation IDs use stable lexical ordering. Internal inverse IDs are
-  appended in the corresponding raw-relation order.
-- The resulting registry has 22 raw IDs plus 18 internal inverse IDs, for 40
-  relation IDs.
-- Inverse facts are materialized within the same split as their source fact.
-- PAMR query filtering uses `train_eval` for the four artist-to-artist target
-  relations, while intermediate path edges may use every registered relation.
-- Main path scopes are train for validation and train plus validation for test.
-- Current-split VLKGE embeddings are diagnostic only. Current-split facts are
-  not used for PAMR paths, PAMR training, or path negative filtering.
-- Candidate tails are split-local for the four target relations.
-- VLKGE and PAMR rank identical candidate tails.
-- PAMR aggregates multiple paths per candidate tail with `max`.
-- PAMR starts from the frozen VLKGE score and learns a zero-initialized path
-  residual. No-path candidates retain the direct VLKGE score.
-- PAMR loss selection is configurable among grouped pairwise, listwise
-  softmax, and binary candidate objectives.
-
-Inspection-wave decisions (2026-09-19 interview):
-
-- Self-probes (candidate tail equal to the query head) are explicit
-  no-path probes: no self-edge exists, so the candidate keeps the direct
-  frozen VLKGE score plus the learned no-path residual.
-- Path merges abort on failed workers and on incomplete or duplicated
-  probe outputs; probe completeness is audited per split.
-- Ranking semantics live in `pmr/ranking.py` and are shared by
-  `evaluate.py` and `train_pamr.py` (single strict/non-strict/multi-positive
-  definition).
-- Local verification is restricted to py_compile, a C++ syntax check,
-  numpy/pure-function micro-tests, and torch micro-tests via the
-  `graphml` conda env; no training, data generation, or GPU work happens
-  locally. Artifact regeneration, compilation for production, and
-  retraining remain on the compute machine.
-- Code state is committed to git per phase (checkpoint `5a3af76`,
-  Phase 1 `9f19ca2`).
-- Per-probe masking (F7): own query relations (query relation + registry
-  inverse between head and tail) are masked in every split; the
-  target-traversal rule is one uniform flag across splits (default true
-  = non-own target edges traversable; `false` denies all target edges).
-  Uniformity is what actually matches train and eval evidence rules; a
-  per-split difference would itself be a distributional skew.
-- Length-first composite: no-path candidates are excluded from lf ranking
-  by default (`lf_no_path_policy: exclude`), with the lf population and
-  skip counts reported; `infinite` ranks them after all path candidates.
-- Candidate-level objectives run with the bucketed query-group sampler
-  (`group_batches: true`) so candidate sets are complete per batch.
-- Production gates: `min_eval_coverage: 0.95` and `patience: 5`.
-- Production objective for the first retrain stays `grouped_pairwise`;
-  contrastive/temperature and scale-aware margins are B3 ablations.
-- No-path residual granularity is per query relation (zero-initialized);
-  the Decision Record's zero-init baseline contract is unchanged.
+### NEXT ACTIONS (in order)
+1. **Check 78298 completion** + validate slim-copyback landing
+   (`complex_wikiart_mkg_v2_train.pt`, no optimizer keys, registry
+   manifest + scope metadata present). If still running: leave alone.
+2. **Submit the batch-size probe** (`slurm/phase_probe_bs.sbatch`, GPU,
+   ~15 min): sampler cuda-vs-cpu wall, trainstep @ bs {512, 2048, 8192},
+   evalscore @ {512, 4096}. JSON ACCEPTANCE lines. NOT node gpu03 if its
+   RAM is starved by others (health: `sinfo -N -o '%N %T %e'`).
+3. **Batch-size decision (user)**: probe data decides whether Phase C
+   backbones keep the locked bs 512 (June-provenance protocol) or adopt
+   a larger bs (changes training dynamics + lr interaction — a
+   protocol change that needs explicit user approval).
+4. **evaluate_kge vectorization decision (user)**: the per-epoch val
+   eval (208K triples × per-triple `.item()` CUDA syncs) was the
+   measured 78297 wall hog (SIGINT traceback: helpers.py:361). A
+   batched/vectorized rewrite is protocol-neutral (ranks unchanged) but
+   needs parity micro-tests before adoption. Options: (a) relaunch
+   transe now with current fixes (slow evals ~25 min/epoch tolerated),
+   (b) vectorize first (half-day CPU work), then relaunch everything.
+5. **Relaunch transe backbone** (78297 replacement) with ALL fixes:
+   PYTHONUNBUFFERED, CPU-copy sampler, --eval_batch_size 4096, hub-drop,
+   OMP/MKL=10. Then waves B (distmult+rotate) + C (struct).
+6. Phase D chain → Phase E/G → aggregation (§3 below).
 
 ---
 
-## 4. FIT cluster handoff (verified via SSH 2026-10-03)
+## 1. Locked experiment plan (8 interview decisions — unchanged)
+
+1. **Compute** = FIT cluster (Slurm). GPU fleet: gpu01 = 8×A100-40GB,
+   gpu02-04 = 4×GPU each (A100 40GB after the live upgrades; gpu02
+   driver 555.42.02, gpu03 driver 580.82.07 — RECHECK DRIVERS each
+   session, the admin is upgrading nodes live).
+2. **Regen matrix = FULL**: retrain TransE (backbone + baseline),
+   ComplEx, DistMult, RotatE baselines + structural-only TransE (PAR
+   backbone); retrain PAMR + PAR; rescore all on the prepared query CSVs.
+3. **Backbone scope = train everywhere** (one train-scope backbone backs
+   val + test evaluation + baseline scoring; no matched-scope pairing).
+4. **Protocol = 10 negatives × 2 seeds** (PAMR seed 42 + seed 1, n=2
+   std ddof=1; baselines single-seed 42).
+5. **Ablations = core 5**: fine-tuned backbone, K=3 (fresh h3 paths —
+   already extracted), depth N=12, readout cls, B3 contrastive =
+   listwise_softmax + lf_temperature 0.1.
+6. **rclone/GDrive auth superseded** — FIT staging (rsync) only.
+7. **Camera-ready = correct the numbers** if accepted.
+8. **Backbone = TransE-faithful** (pamr.yaml → retrained train-scope
+   TransE `transe_wikiart_mkg_v2_train.pt`). STANDING CAVEAT: June
+   artifacts show the published numbers came from a frozen COMPLEX
+   checkpoint (d_model=1536; `vlkge_checkpoint` field in
+   `pamr_training_metrics.json`); the regeneration is a NEW
+   configuration — deltas have two sources (fixed pipeline + documented
+   backbone). Ignore old result/average/count CSV values.
+
+---
+
+## 2. Phase record (chronological, condensed)
+
+### Phase 0 + audit + fix rounds (2026-10-03 → 10-04)
+- Provenance audit from synced artifacts; verify_paths.py runner (checks
+  A scope-hygiene / B own-edge+completeness / C candidate-identity);
+  rename sweep `pmr`→`pamr` (47 refs, 14 modules); fine_tune +
+  lf_temperature wired end-to-end; smoke chains repointed to TransE.
+- Audit found 2 critical defects, fixed (commit d4c2d23): train_pamr
+  missing `def main():` (body unreachable after resolve_config return);
+  verify_paths registry-hash comparison nested-vs-top-level mismatch.
+  + inverse-id hardening; requirements floors; smoke repoints; fixture
+  mirror; registers synced (ba7c335 §5 mapping; 003b5f6 AGENTS.md
+  rewrite; 1510410 comment sweep).
+
+### Phase A (2026-10-04)
+- A1/A2 staging verified (md5/cksum). A3/A4: env binding — originally
+  minted `t260cu126-py312-pamr`-plan, SUPERSEDED same-day by the FIT
+  unification (one universal venv) then by the FINAL workspace; pyproject
+  rewritten (floors-only, requires-python >=3.12,<3.13). A5 compiled.
+  A6 probe: **cu130 torch GPU-dead fleet-wide** (drivers 525/535, CUDA
+  12.2-era; RuntimeError "driver too old (found version 12020)") — the
+  unification agent had import-verified only, never GPU-verified
+  (evidence: reports/finalize_py312.log). Escalated; user delegated env
+  resolution to the other agent.
+
+### Phase B + pandas-3 revalidation (2026-10-04 → 10-06)
+- Defects found BY EXECUTION (the CPU-first strategy worked):
+  - c1c68e6: `../checkpoints` resolved against WS_ROOT (repo parent) in
+    preprocess.py/score.py + prepare cwd-dependence → silent split skips
+    → all REPO_ROOT-relative now + loud failures.
+  - cf4d0dd: keep_temp=false deleted the row-identity probe queries
+    (verify B first-class artifacts) → preserved unconditionally; chain
+    flattens + verifies on flattened dirs.
+  - a7f410a: thread/worker etiquette — prepare pool default
+    cpu_count()=256 inside 12-CPU cgroup (observed live) → cap 10;
+    pamr.py builder pool cap 10; BFS threads 8→10 (2 reserve); OMP/MKL=10.
+  - revalidation job 78287 under the FINAL env: ALL GREEN (counts in §0).
+  - pandas-3 drift note: negative identities differ between lineage runs
+    (pool ordering changes rejection draws); positives stable; the
+    verify contract checks hold — fresh lineage is authoritative.
+- Graph CSVs deleted after evidence archived
+  (reports/phaseB_revalidation_evidence.txt) — regenerable in ~4 min.
+
+### Phase C0 machinery smoke (2026-10-05, job 78141)
+- FULLY GREEN on CPU: synth ckpt → score.py (3 splits, strict contract)
+  → evaluate.py (metrics.json) → train_pamr 1 epoch (709 pairs → 9 group
+  batches; val 2,222 / test 2,629 probes; d_model=768 auto-detect;
+  artifacts under cpu_smoke/ scratch; prod untouched).
+- Audit fixes folded (ad2fe02): train_pamr device-guards for CUDA metric
+  calls; output-own paths_dirs (PAR → full/par; ablations →
+  full/ablations/{finetune,depth12,cls,lf_temp,seed1}/; hop3 keeps
+  _h3/pamr) preventing artifact clobber; smoke proxy configs absolute
+  vlkge_config paths.
+- Turnkey sbatch set authored + FIT-staged + sbatch --test-only
+  validated: phase_c_gate (torch acceptance), phase_c_backbone (per-model
+  export, scratch-save + USR1/EXIT stage-sync + slim copyback,
+  --time=12:00:00 vs DefaultTime-6h hazard), phase_d (gated chain),
+  phase_e (ablations, clone-before-run).
+
+### Contract migration to the FINAL workspace era (2026-10-05, 90a5dda)
+- The env system finalized by the other agent: uv WORKSPACE (root
+  `projects/pyproject.toml`, members ejepwm/DZ/akg-sv + pamr/src), union
+  lock 509 pkgs, shared venv `t251cu121-py312`, torch 2.5.1+cu121 (the
+  ONLY runnable family on driver 535; cu126/128/130 verified failing
+  on-node, jobs 78104/78105; family gate map: 535→cu121, 550→cu124,
+  560→cu126, 570→cu128, 580→cu130/13.x — family adoptions require an
+  on-node smi+matmul proof job first, evidence job 78282).
+- Pamr joined as 4th member: `uv lock` (Added pamr v1.0.0) +
+  `uv sync --locked --no-dev --all-packages` (mostly no-op, 335 checked)
+  + registry note (used_by += pamr). Import battery OK.
+- Binding trap: bare `uv run --project` spawns a forbidden repo-local
+  `.venv` (deleted once); with the workspace contract
+  `uvenv_ws_env.sh` exports UV_PROJECT_ENVIRONMENT → shared venv used;
+  runtime is direct venv python (README-blessed).
+- Transient disk squeeze (2.2 GB free) self-recovered communally.
+
+### Wave A + GPU-util round (2026-10-06)
+- Wave A v1 (78291/78292) FAILED rc=1: sampler fail-fast "Every
+  candidate tail for head 222220 under relation 29 is a known positive".
+  Grounding: relation 29 = internal inverse_of 7 (isCreatedByArtist
+  family); hub triples whose pool is fully covered by known truths.
+- Fix ef005be: whole-triple drop contract in
+  negative_sampling_per_relation_fast (4-tuple return + keep_rows mask;
+  coherent for num_neg_samples>1; train loop aligns pos_scores via the
+  mask; fully-hub batches skipped; avg_loss over loss-bearing batches;
+  the banned corruption class stays banned; filters-vs-pool disagreement
+  keeps its own fail-fast). Micro-tests 3/3 on FIT.
+- Wave A relaunched (78297 transe@gpu02 + 78298 complex@gpu03, 16:12 +7).
+- GPU-util diagnosis (user directive "probe best batch size to maximize
+  GPU use"): trainer host-bound. Evidence chain: ps → 99.7% single-core
+  CPU; pmon → 44-46% SM sustained, 9.1 GiB/40; ctx-switch sampling →
+  zero voluntary switches in 5 s; SIGINT traceback (killed 78297 at
+  1:50:32, my diagnostic sacrifice) → the process was INSIDE
+  `evaluate_kge` (helpers.py:361) doing per-triple `.item()` CUDA syncs
+  over the 208K-triple val eval. CONCLUSION (correcting an earlier
+  "hung" hypothesis): NOT hung — the per-epoch eval is the wall hog
+  (per-triple syncs × 208K, amplified by driver contention under
+  multi-tenant nodes); the earlier zero-switch reading = tight
+  ioctl+spin loop, not a hang. Fixes landed (d58e57f): sampler inputs
+  get ONE .cpu() per batch (semantics + RNG stream identical, parity
+  micro-tested), --eval_batch_size (default 4096) for val/test/sampled
+  loaders (protocol-neutral). The per-triple .item() INSIDE evaluate_kge
+  remains — vectorized-eval rewrite proposed (needs parity tests).
+- PYTHONUNBUFFERED=1 added (be433e1) — running jobs predate it (their
+  logs flush at 8 KB boundaries only).
+- Batch-size probe authored (520a0aa) — blocked by the admin block
+  (3 cancels + canary), which LIFTED at 18:13 (canary 78314 COMPLETED).
+
+---
+
+## 3. Remaining program (Phases C→H)
+
+1. **78298 completion check** → slim ckpt landing validation.
+2. **Probe** (unblocked): `sbatch slurm/phase_probe_bs.sbatch` → numbers.
+3. **User decisions**: training batch size (probe data vs locked 512);
+   evaluate_kge vectorization (before or after relaunch).
+4. **Phase C waves** (2 jobs × 1 GPU): A' = transe (relaunch) + complex
+   (78298, running); B = distmult + rotate; C = struct.
+   Every backbone: `sbatch --export=BACKBONE=<name> slurm/phase_c_backbone.sbatch`
+   (BACKBONE ∈ transe|complex|distmult|rotate|struct). Scratch-save +
+   USR1/EXIT stage-sync + slim copyback (no optimizer; consumers need
+   model_state + metadata). --time=12:00:00 explicit. Post-wave gates:
+   consumer contract checks (relation count 40 / registry hash /
+   embedding_scope=train).
+5. **Phase D** (one GPU job): `sbatch slurm/phase_d.sbatch` — gate on 5
+   ckpts → score.py ×4 (score chains; TransE scores double as the
+   TransE-baseline row) → PAMR prod (pamr.yaml) → clone+PAR
+   (pamr_par.yaml) → evaluate.py → verify_paths check C (identity, test
+   split, prepared-queries cross-check).
+6. **Phase E/G** (one GPU job): `sbatch slurm/phase_e.sbatch` — seed1 +
+   finetune + depth12 + cls + lf_temp (clone-before-run) + hop3 (on
+   _h3/pamr paths). n=2 std (ddof=1) for PAMR rows.
+7. **Phase H** piggyback: BFS timings done (Phase B logs); paired-build/
+   epoch/inference timings from log_metrics fields.
+8. **Aggregation + paper**: per-relation metrics → fresh
+   result.csv/average.csv (grouped-header format) → delta vs paperv7 →
+   camera-ready refresh if accepted (notification 2026-10-12).
+9. **PAMR-family scoring caveat**: baseline score chains score ONLY the
+   prepared target-relation queries; verify C needs PAMR test_scores.csv
+   (paths_dir) vs VL-KGE test_scores.csv (prepare dir).
+
+---
+
+## 4. FIT cluster handoff (FINAL state — verified via SSH 2026-10-03→06)
 
 ### Access + rules
-- `ssh FIT` = 172.29.74.81, user `hlhdang`, key `id_rsa_fit` (~/.ssh/config). Banner notice + watch UI `http://172.29.74.82:8012/`.
-- Authoritative reading order: `~/AGENTS.md` (shared-HPC rules, env system, job lifecycle) → `/media02/hlhdang/README.md` (filesystem map + conventions) → `~/admin_note.txt` (store everything under `/media02/hlhdang`).
+- `ssh FIT` = 172.29.74.81, user `hlhdang`, key `id_rsa_fit` (~/.ssh/config).
+- Reading order: `~/AGENTS.md` → `/media02/hlhdang/README.md` →
+  `~/admin_note.txt` (store everything under /media02/hlhdang).
 
-### Cluster facts (verified 2026-10-03)
+### Cluster facts (verified 2026-10-03; nodes upgraded live since)
 | Item | Value |
 |---|---|
 | Scheduler | Slurm, single partition `batch` |
-| Nodes | gpu01 = 8×GPU, 980 GB RAM; gpu02–04 = 4×GPU, ~240 GB RAM; 256 threads each |
-| Time | MaxTime 2-00:00:00; DefaultTime 6 h |
+| Nodes | gpu01 = 8×GPU, 980 GB RAM; gpu02-04 = 4×GPU, ~240 GB RAM; 256 threads |
+| Time | MaxTime 2-00:00:00; DefaultTime 6 h → ALWAYS explicit `--time` for long jobs |
 | Memory | DefMemPerCPU=2 GB → ALWAYS explicit `--mem` |
-| Per-job CPUs | account limit **12** |
-| GPU quota | QOS `gpu_limit` = 4 GPUs/user (RUNNING + PENDING both count) |
-| Scratch | TmpDisk=0 → /dev/shm (~500 GB gpu01) or /tmp (~1.6 TB); jobs self-clean (`trap … EXIT`) |
-| Storage | /home NFS 195 GB cluster-wide (~31 GB free, dotfiles only); /media02 5 TB 96–97% full (~200–240 GB free) |
-| Compute nodes | OFFLINE — never pip/download inside a job; stage on login |
-| Watch UI | `http://172.29.74.82:8012/` |
+| Per-job CPUs | account MaxCPUsPerJob = **12** |
+| GPU quota | QOS gpu_limit = 4 GPUs/user (RUNNING+PENDING both count) |
+| Scratch | TmpDisk=0 → /dev/shm (~500 GB gpu01) or /tmp; trap … EXIT self-clean |
+| Storage | /media02 5 TB shared (free fluctuates 2-166 GB — PRE-FLIGHT df) |
+| Network | login OK; compute nodes OFFLINE — stage everything on login |
+| Watch UI | http://172.29.74.82:8012/ (lease-renew banner seen) |
 
-### MIGRATION 2026-10-04 (READ FIRST — supersedes the multi-venv facts below)
-- The env system is UNIFIED: exactly ONE environment `/media02/hlhdang/uvenvs/main-py312` — CPython 3.12.14, torch 2.11.0+cu130 / torchvision 0.26.0 / torchaudio 2.11.0, LeWM frozen stack, ~6.6 GB [ACTIVE, import-verified].
-- All earlier venv rows (t251cu121, t260cu126, t280) are **EVICTED** (deleted after a disk incident; free space ramped ~15 GB → ~67 GB). NEVER rebuild them; NEVER mint sibling venvs ("no new venvs — ever"; a second CUDA-family venv needs explicit human approval).
-- Project binding: minimal pyproject deps → `uv lock` on the login node → `UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312 uv sync --locked`. Keep additions minimal and note them in `uvenvs/registry.json`.
-- **CRITICAL for pamr**: the sync must NOT dislodge torch 2.11.0+cu130 (one-CUDA-family policy — a PyPI default wheel would swap the cu130 build out from under the collective env). Inspect the ejepwm project's pyproject/lock for the cu130 index pattern first; if all pamr deps already exist in main-py312, prefer NO torch dependency entry at all.
-- Budget: env+cache ≤ 60 GB; stop if media02 free < 25 GB; any write expected > 5 GB needs a pre-flight `df -h /media02` + a registry note. Compute nodes OFFLINE (unverified internet) — stage on login.
+### Environment system (FINAL — uv workspace)
+- ONE shared venv: `uvenvs/t251cu121-py312` (py3.12.14, torch
+  2.5.1+cu121 / tv 0.20.1 / ta 2.5.1, numpy 2.5.3, pandas 3.0.6,
+  transformers 5.18.0, sklearn 1.9.1, stable-worldmodel 0.0.6,
+  stable-pretraining 0.1.6 --no-deps post-sync injection).
+- Workspace root `projects/pyproject.toml` (virtual; members ejepwm,
+  DreamZero-Project-IML, akg-sv, pamr/src); THE lock =
+  `projects/uv.lock` (509 pkgs); per-member locks archived *.pre-ws.bak.
+- Pin policy: ONLY torch triad + py3.12 (+ swm 0.0.6) pinned; everything
+  else floats; resolver deadlocks → extend root
+  `[tool.uv] override-dependencies` (numpy>=2.2.6,<3, transformers>=4.50,
+  <6, tokenizers>=0.21, datasets>=2.19) — never hand-drop pins.
+- Runtime: `source /media02/hlhdang/tools/uvenv_ws_env.sh` (exports
+  UV_PROJECT_ENVIRONMENT + cache paths); run via direct
+  `uvenvs/t251cu121-py312/bin/python -m …` (README-blessed; avoids
+  uv-run project resolution).
+- Re-lock/sync: `cd /media02/hlhdang/projects && uv lock && uv sync
+  --locked --no-dev --all-packages` (uv pinned at tools/uv/uv v0.12.19).
+- NO new venvs/conda/pip-venv — ever; family adoptions need on-node
+  proof jobs (gate map: 535→cu121 … 580→cu130; proof job 78282).
+- Budget: env+cache ≤ 60 GB; <25 GB free stop for env work; >5 GB writes
+  need pre-flight df + registry note.
 
-### GPU fleet probe (2026-10-04, Phase A6) — cu130 torch GPU-DEAD fleet-wide
-- Survey (nvidia-smi inside `--gres=gpu:1` jobs): gpu01 = 8× **A100-SXM4-40GB, driver 525.147.05** (CUDA 12.0); gpu04 = V100-DGXS-32GB, driver 535.216.03 (CUDA 12.2); gpu03/gpu02 not directly probed (gpu02 DRAINED per sinfo; gpu03 probes blocked by scheduler transiently). Node probe pattern: `-N1 --nodelist=<node> --gres=gpu:1` (missing `-N1` = "Node count specification invalid").
-- **torch 2.11.0+cu130 fails on every current driver** (needs the CUDA-13 driver family, 580+): probe job `pamr-probe` (job 78095) printed `cuda_available False` → `RuntimeError: The NVIDIA driver on your system is too old (found version 12020)` on gpu04. Files: `projects/pamr/reports/probe_78095.out/.err`.
-- The unification agent's own logs (`reports/finalize_py312.log`) show ONLY import verification — `IMPORTS-OK torch=2.11.0+cu130` — no GPU job ever ran. The collective env is GPU-sterile on this fleet.
-- Phase A completed despite this: staging (src 81 MB diff-verified; data 1.7 GB cksum-verified), uv.lock minted with env-exact pins (torch==2.11.0+cu130 via cu130 index, requires-python >=3.12; 44 packages; `uv run --no-sync` binding test IMPORT-OK), `preprocess.o` compiled (g++ 11.4, c++23), registry noted. Rename leftover swept: configs' `cpp_source/binary_path: pmr/…` → `pamr/…` (would have crashed SLURM compile step). workstation pyproject rewritten (name vlkge→pamr, env-exact pins, transformers/lavis dropped from runtime deps — only `evaluate_zero_shot.py` imports them, out of campaign scope).
-- Binding trap recorded: bare `uv run --project` spawns a FORBIDDEN repo-local `.venv`; always export `UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312` (and prefer `--no-sync` to never mutate the collective env). Registry row updated (used_by+=pamr, note records the trap).
-- GPU-phase resolution pendente user decision: (a) ask admin for 580-series drivers on A100 nodes, or (b) human-approved second CUDA-family venv `t262cu126-py3XX`-style (cu12x compatible with driver 525/535 — matching the ORIGINAL campaign plan for torch 2.6) for pamr only, or (c) run Phase B CPU-only first (prepare/BFS/graph regen need no GPU) and defer GPU traces. **(2026-10-04: user delegated the GPU env resolution to the other agent; this session terminates to await it. Everything below ran CPU-only meanwhile.)**
+### Campaign layout on FIT
+- Tree: `/media02/hlhdang/projects/pamr/{src,data,checkpoints,slurm,scripts,reports}`
+- Data: `projects/pamr/data/wikiart_mkg_v2/` (triples 1.04 GB + vf_clip
+  653 MB + tf_clip 23 MB + README).
+- Artifacts: `projects/pamr/checkpoints/preproc/wikiart_mkg_v2/{full/pamr,_h3/pamr}`
+  (paths CSVs + probe-identity queries + graph metas + mappings +
+  manifest) + `{train,val,test}_queries.csv` + metadata.json at
+  preproc root; `cpu_smoke/` scratch subtree.
+- Checkpoints (target): `projects/pamr/checkpoints/vlkge/wikiart_mkg_v2/<model>_wikiart_mkg_v2[_struct]_train.pt`
+  (slim: model_state + metadata; stage_ files = in-flight full ckpts).
+- Reports: `projects/pamr/reports/` (job .out/.err, evidence files).
+- Local mirror: workstation repo `src/` rsynced both ways after changes.
 
-### Phase B CPU regen — COMPLETE + VERIFIED (2026-10-04, job 78118, 9m44s)
-- `slurm/phase_b_regen.sbatch` chain ALL GREEN: registry acceptance (22 raw / 40 total, hash stable `ff50ee5aabe9ba5e…`, involution PASS) → prepare (train **709** queries / val **202** / test **239**, K=1/10/10, 100% full negatives, 0 skips) → BFS prod (K=5/F=100/D=0.5, 8 threads): found **1,417/2,208/2,614** (train/val/test; val Missing 14 = 99.37% coverage, matching the June v2-v3 benchmark datum exactly) → BFS h3 (K=3/F=100/D=0.5): **1,410/187/200** (H<3-floored evidence confirmed on real data) → flatten `full/pamr` + `_h3/pamr` → **verify_paths A/B PASSED on all 3 splits for BOTH prod and h3** (scope violations 0; own-edge violations 0; probe completeness exact).
-- Dataset facts pinned: target-relations-only protocol shrinks the June 16.09M-query prepare to 709+202+239=1,150 queries — the "8 CPU-h BFS extrapolation" era is GONE (whole chain ≤ 10 min CPU); train-scope graph = 7,877,220 rows, test scope = 8,085,733 (train+val); excluded facts per verify: 416,881 (val excluded from train scope), 208,368; train avg hops 2.3 with own-edge masking ON (the leak design working as intended).
-- Defects FOUND + FIXED by execution round 1 (commit `c1c68e6`): `preprocess.py` resolved `../checkpoints/…` against WS_ROOT (repo PARENT) → `../..` collapsed one level too far → every split silently `SKIP`ped as "queries CSV not found"; `score.py:107` same bug for checkpoint_path; `prepare.py` relied on process cwd for its outputs. All three now REPO_ROOT-relative (the resolve_config_paths consumer convention) + a missing prepared-queries file now FAILS loudly instead of silently skipping.
-- Defects FOUND + FIXED round 2 (commit `cf4d0dd`): keep_temp=false deleted the row-identity probe queries (`{split}_queries.csv` in run dir) — first-class artifacts consumed by verify_paths check B → preserved unconditionally (only worker part files pruned); run dirs flatten to `<base>/full/pamr` and `<base_h3>/pamr` in the chain; verify runs on both flattened dirs.
-- Phase B artifacts live on FIT: `projects/pamr/checkpoints/preproc/wikiart_mkg_v2/{full/pamr,_h3/pamr}` (graphs, graph metas, paths CSVs, paths metas, entity/relation mappings, relation manifest) + prepared queries at `preproc/wikiart_mkg_v2/{train,val,test}_queries.csv` + `metadata.json`. Workspace-relative convention verified resolved correctly end-to-end on FIT.
-### Audit + Phase C0 preflight round (2026-10-05, non-GPU) — the GPU plan is now execution-hardened
-1. **`train_pamr.py` CUDA-metric guard bug (FIXED, would have broken runs):** `torch.cuda.reset_peak_memory_stats()` at the train/test metric blocks was guarded by `log_metrics` only — any `log_metrics: true` CPU run crashed (`invalid argument to reset_peak_memory_stats`, caught live by the smoke) and the same pattern was latent in the GPU phase. Both call sites now device-guarded (ternaries for max_memory_* were already correct). Commit: this round.
-2. **Output-own paths_dir for PAR + all 5 ablations (FIXED config clobber):** every shared `paths_dir: full/pamr` meant each later run would overwrite prod's `pamr_best.pt` / `pamr_training_metrics.json` / `test_scores.csv`. Now: PAR → `full/par/`; ablations → `full/ablations/{finetune,depth12,cls,lf_temp,seed1}/`; hop3 keeps `_h3/pamr/`. The phase D/E chains clone the regenerated paths (CSVs+metas+mappings+manifest, all MBs-tiny) into each target before running; `queries_dir` stays the shared prepared-queries dir (read-only contract). pamr.yaml (PROD) keeps `full/pamr` as its own output.
-3. **Sbatch plan hardened:** `slurm/phase_c_backbone.sbatch` (per-backbone via `--export=BACKBONE=…`, `--time=12:00:00` because DefaultTime=6h would kill a backbone wave at ~15-25 min/epoch × 20 evals) · `phase_d.sbatch` (gate ⇒ scores ×4 ⇒ PAMR ⇒ clone+PAR ⇒ evaluate ⇒ verify C) · `phase_e.sbatch` (seed1 + 4 ablations + hop3, clones per run) — all FIT-staged, syntax-checked, phase-C validated by `sbatch --test-only`.
-4. **Phase C0 CPU machinery smoke — FULLY GREEN (job 78141, ~4 min end-to-end):** `throwaway_synth_cpu_ckpt.py` now builds through `helpers.get_model` with the score.py orchestration (exact feature-aligned tables, `raw_margin`, `seen_in_train` included; trainable weights scrambled) → synth PASS (register count 40 contract honored — score.py correctly REJECTED the earlier 22-rel synth) → `vlkge/score.py` PASS (3 splits scored) → `evaluate.py` PASS (metrics.json) → `train_pamr.py` PASS (709 pairs → 9 group batches; val 2,222 / test 2,629 probes; d_model=768 auto-detected from the TransE contract; per-run artifacts written: `pamr_checkpoints/pamr_best.pt`, `pamr_training_metrics.json`, `test_scores.csv` under the scratch dir `cpu_smoke/pamr/`; prod dirs untouched). Rel-map built from datasets: val 202 / test 239 for the exclusion filter ✓.
-5. **Backbone-family auto-detect re-verified:** RotatE has NO `relation_embeddings_imag` → PAMR branches (`has_rel_imag` before `is_rotate`) hold for all four families; entity/rel dims correct per family (TransE=768 both → d_model 768).
-6. **Resume/USR1 fencing for Phase C requeues:** `helpers.train` resumes from the best saved checkpoint (`--resume_from`); loss ≤ 1 epoch between improves — acceptable; `load_checkpoint` restores optimizer/scheduler/epoch code-path-verified.
-
-### Wave A + GPU-util round (2026-10-06, +7 timezone)
-- **Wave A relaunched with the hub-drop fix** (jobs 78297 transe@gpu02, 78298 complex@gpu03, 16:12 +7). Fleet fact: gpu02/gpu03 were UPGRADED to A100-PCIE-40GB (driver 555.42.02) mid-campaign — cu121 runs upward-compatible.
-- **GPU-util diagnosis (user directive: probe batch size):** trainer host-bound — python at 100% single-core, GPU 10-19% at 5.1/40 GiB. Root causes found in code: (1) the sampler reads `heads[i].item()` per triple = 512 CUDA→CPU syncs per batch × 9,180 batches/epoch; (2) per-triple python attempt loop.
-- **Protocol-neutral fix (committed):** one `.cpu()` per batch for the sampler inputs (semantics + RNG stream identical, parity micro-tested; neg triples moved to GPU once at the forward site; keep mask device-aligned). Eval-side batching is likewise protocol-neutral — `--eval_batch_size` flag added to train_embedding (val/test/sampled loaders; scores per triple independent of batching).
-- **Batch-size DECISION = training hyperparameter = user's call** (locked protocol: bs 512, lr 0.1, Adagrad, 20 epochs — June provenance). Probe job (sampler+trainstep+evalscore bench, bs sweep 512/2048/8192, JSON ACCEPTANCE lines) authored (`scripts/probe_batch_size.py` + `slurm/phase_probe_bs.sbatch`) but submission blocked by the admin action below.
-- **ADMIN BLOCK (live, since ~17:00 +7):** every NEW GPU-job submission from the account is insta-cancelled by root ("CANCELLED by 0") — confirmed twice by a trivial canary (gpu:1/1cpu/4G/5min hostname+sleep). CPU-only jobs survive (canary COMPLETED). Watch UI shows a "Gia hạn thời gian sử dụng (Renew Lease)" banner — likely an expired account lease. Running jobs (78297/78298/78290) untouched so far. DO NOT work around admin watchdogs; GPU-side progress pauses until the human resolves the lease/admin question.
-- Node-health note: gpu03 real-time free RAM was 6.8/240 GB at the time (other users' jobs); earlier probe cancels on gpu03 may have been memory-health preemption — but the gpu01 cancel + canary confirm the account-level block.
-7. Remaining non-blocker notes: smoke-related UserWarning about nested-tensor prototype path is torch-2.11 internal behavior (no action); the synth ckpt is thrown-away (name cpu_smoke_synth_transe.pt at vlkge dir; Phase C's real trans checkpoint uses a different name, no clash).
-
----
-
-### Environment system (SUPERSEDED 2026-10-04 — historical background)
-- Factory: `/media02/hlhdang/scripts/make_uv_env.sh <name> --python <spec> --project <dir>`; forbidden: conda/mamba create, python -m venv, virtualenv, pip --user, pipx, repo-internal `.venv`.
-- Names version-keyed lowercase `t<framework-ver>[-cuXXX]-py<XY>`; venvs central in `uvenvs/`, immutable-in-place; conflicts mint siblings.
-- Every project MUST have committed `pyproject.toml + uv.lock`; rebuild = `uv sync --locked`.
-- Runtime: `source /media02/hlhdang/tools/uvenv.sh` then `uv run --project <dir> python ...`; catalog `uvenvs/registry.json` via `scripts/registry.py list|verify|drop`.
-- uv pinned at `tools/uv/uv` (v0.12.19 + sha256 beside it); do not install another uv.
-
-### Venv rows + sacred cow (SUPERSEDED — see MIGRATION above)
-- ALL named rows (`t251cu121-py310`, `t260cu126-py312`, `t280-py310`) EVICTED 2026-10-04; historical only.
-- Sacred cow: `/media02/hlhdang/AKG-sv` (active collaborator project, 161G repo braid) — DO NOT TOUCH.
-- Campaign binding decision (REVISED 2026-10-04): NO new venv — rebind pamr onto `main-py312` via its own uv.lock. torch 2.11.0+cu130 > the 2.6 floor satisfies the CUDA13-driver requirement (the repo's mean-pool fallback stays dormant; uv-locked pandas/numpy need no special handling on py3.12).
-
-### Proven sbatch patterns (projects/ejepwm/slurm/)
-- `main.sbatch`: gpu:1, 12 cpus, mem=180G, `--signal=B:USR1@300 --requeue`, `trap 'rm -rf "$SCRATCH"' EXIT`, `-o/-e` under `reports/`, chain via env vars.
-- `smoke.sbatch`: 8 cpus, gpu:1, 32G, 1 h, prints `nvidia-smi --query-gpu=name,driver_version,memory.total` + `ACCEPTANCE ...` lines.
-- CPU builds: incremental mark files so requeues skip finished work.
-- Repo conventions: projects keep README.md, MAY add AGENTS.md; relocation = rsync -a + `diff -r` byte-verify; pip/HF caches on media02, never $HOME.
-
-### Updated program (Phase A onward, FIT-organized)
-1. **A1** stage tree → `/media02/hlhdang/projects/pamr` (rsync -a + `diff -r` byte-verify); **A2** data staging (triples CSV 1.04 GB → `projects/pamr/data/`; feature pkls same; size-check first vs the communal-free figure); **A3** `uv lock` inside the project (login node, internet OK) → commit `uv.lock` + rsync it back to the workstation repo; **A4** rebind pamr onto `main-py312` (minimal deps in pyproject → `uv lock` on login → verify the lock keeps torch 2.11.0+cu130 → `UV_PROJECT_ENVIRONMENT=…/main-py312 uv sync --locked` → `registry.py` note+verify); **A5** compile `preprocess.cpp` (worker v2) — check g++ version; **A6** GPU probe sbatch (nvidia-smi + torch CUDA sanity + `ACCEPTANCE ...`).
-2. **Phase B** CPU regen = ONE sequential bash chain per bugs.md §3.1–§3.4 runbook (unchanged durations; BFS threads ≤ 12; explicit `--mem ≥ 16G`; flatten prod + h3 the same way).
-3. **Phase C/D** GPU = `train_embedding.py` retrain (5 backbones: transe/complex/distmult/rotate + struct) → `vlkge/score.py` ×4 → PAMR prod + PAR trainings → `verify_paths.py` C → `evaluate.py` → CSV refresh → delta vs paperv7 (USR1+requeue+resume for multi-hour runs). Scripts authored + FIT-staged: `phase_c_backbone.sbatch` (per-model `--export=BACKBONE=…`, `--time=12:00:00` — DefaultTime 6h would kill a wave), `phase_d.sbatch` (gated sequential chain), wave plan = 2 jobs × 1 GPU.
-4. **Phase E–G** = seed-1 + 4 ablations (+ hop-3 BFS extraction alongside).
-5. **Phase H** = piggyback stage timings (last #14 gap).
-
-### Etiquette (HPC — every sbatch)
-Diagnose `reports/<job>.out/.err` before resubmitting; jobs must be self-diagnosing (`ACCEPTANCE ...` lines); wall ≤ 45 h inside the 2-day limit; keep pending GPU pressure ≤ the 4-GPU quota; batch verification jobs.
-
-### Session-integrity lessons (compaction guard)
-- TWO degeneration loops hit this session (garbage repetition). On any recurrence: STOP, re-read the last real tool output, restart from the todo list — never keep generating.
-- Verify transforms with ast.parse gates BEFORE accepting writes; locate anchors by content search, never fixed offsets.
-- Always `git status --short` before any add; stage selectively (the Phase 0 commit mixed pre-existing tree changes — described honestly in its message, but avoid next time).
+### Etiquette (every sbatch)
+- Diagnose reports/<job>.out/.err BEFORE resubmitting; same failure twice
+  → STOP + write reports/blocker_<name>.md + escalate.
+- Self-diagnosing ACCEPTANCE lines; wall ≤ 45 h; pending GPU pressure ≤
+  4-GPU quota; batch verification jobs; cancel stale PENDING.
+- srun --overlap for in-job inspection; -N1 required with --nodelist
+  (missing -N1 = "Node count specification invalid"); watch node RAM
+  (sinfo %e) — gpu03 was at 6.8 GB free once.
 
 ---
 
-## 5. Reference mapping — file → location index
+## 5. Defect register (consolidated; all RESOLVED unless noted)
 
-Purpose: rediscover exact content without re-grepping. Anchors verified 2026-10-03; re-check after future edits.
+- **train_pamr missing main()** (d4c2d23) — body unreachable; verified
+  ast-clean after fix.
+- **verify_paths nested-hash mismatch** (d4c2d23) + inverse-id hardening.
+- **Workspace-relative dir collisions** (c1c68e6) — preprocess WS_ROOT
+  bug (silent skips), score checkpoint_path, prepare cwd-dependence;
+  loud failure on missing prepared queries.
+- **Probe-queries artifact deletion** (cf4d0dd) — kept unconditionally.
+- **CUDA metric guards** (ad2fe02) — reset_peak guarded by device.
+- **Output-own paths_dirs** (ad2fe02) — clobber prevention for PAR + 5
+  ablations; clone-before-run in chains.
+- **Hub-relation sampler crash** (ef005be) — bounded whole-triple drop
+  + keep mask + train-loop alignment; micro-tested 3/3.
+- **Per-triple CUDA syncs in sampler** (d58e57f) — one .cpu() per batch;
+  parity micro-tested. REMAINING: evaluate_kge per-triple .item()
+  (proposed vectorized rewrite, user decision pending).
+- **Thread/worker etiquette** (a7f410a) — pool caps, BFS 10 threads,
+  OMP/MKL caps, PYTHONUNBUFFERED (be433e1).
+- **Stale-name hygiene** — evaluate.py usage line, path comments,
+  configs cpp_source/binary_path pmr→pamr (2989e77).
+- **requirements floors** (d4c2d23) — torch>=2.6 (now superseded by the
+  workspace-era torch 2.5.1+cu121 pin; the CUDA-13-driver CUBLAS bug
+  family does not apply to driver 535/555; dormant mean-pool fallback
+  remains as contingency).
+- **Known-swap CSVs** — old result.csv H1/H3 TransE↔PAMR per-relation
+  columns swapped; untrusted; B-queue regenerates.
 
-### 5.1 Code + configs (local repo `src/`)
+---
+
+## 6. Reference mapping — file → location index
+
+Anchors verified 2026-10-04; re-check after future edits (re-grep content,
+never trust stale offsets).
+
+### 6.1 Code + configs (local repo `src/`)
 
 | Relevant content | File | Anchor |
 |---|---|---|
-| main() body (training loop), resolve_config, alloc-conf, __main__ | `pamr/scripts/train_pamr.py` | resolve_config 106–117; `def main():` 118–990; `PYTORCH_CUDA_ALLOC_CONF` 121 (first lines of main); loader + scope validation 255–~296; fine-tune gate + prints 298–~320; optimizer AdamW 487; test_scores.csv writer (query_id, candidate_tail_id, score, is_positive) 916–~922; metrics json keys (fine_tune_backbone, lf_temperature) 963–964; `__main__` 992–994 |
-| Freeze/fine-tune + temperature + score contract | `pamr/models/pr/pamr.py` | class docstring (score contract ŷ = g + Δ) ~630–648 (PAMR class def); `__init__` freeze gate + comment 670–678 (signature defaults at 655); auto-detect D/is_rotate ~681–690; no-path residual emb (per-relation, zero-init) 764–771; `recon_gate` 771; criterion switch ~781–789; `train()` eval-override 792–797; `_reset_parameters` zero-init block 797–842 (re-zero of residual/recon_gate 824–829); forward def 1011; vlkge no_grad gate 1036–1041; no-path offset 1044–1050; token build uses `vlkge.get_entity_representations` (NOT no_grad) 836–857; listwise temperature in compute_loss (see "lf_temperature" block); `_aggregate_candidates` + QueryGroupBatchSampler 558–650 |
-| B1 leakage-verification runner | `pamr/scripts/verify_paths.py` | docstring/usage 1–32; `_iter_graph_rows` 43–47; `check_meta` (nested registry-hash comparison + per-key loop) 50–~108; `build_exclusion_index` (inverse_map from paths-meta manifest) 111–~180; `check_scope` (A) 183–~200; `load_probe_index` ~205–222; `check_own_edge_and_completeness` (B + sample contract + probe completeness) 224–~292; `check_candidate_identity` (C; prepared-queries cross-check) 294–~371; `main` 373–437 (file 438 lines) |
-| Micro-test worlds | `/var/folders/0q/3t_tkstj62xbk4dzvv3wt8300000gn/T/opencode/p0test/test_verify_paths.py` | 5 worlds (clean/own-edge/scope-leak/completeness/identity) + real-shape metas — rerun from `src/` via graphml env |
-| PAMR edit micro-test | `/var/folders/0q/3t_tkstj62xbk4dzvv3wt8300000gn/T/opencode/p0test/test_pamr_edits.py` | freeze default / fine-tune split / backward reach / temperature |
-| Registry manifest shape (why the nested-hash fix matters) | `pamr/relation_registry.py` | `_build_manifest` 130–145 (inverse_relation_id str→int); `to_dict` adds registry_hash inside 162–165; `inverse_id` 150–154 |
-| Worker v2 launcher + artifact shapes | `pamr/models/pr/preprocess.py` | module root paths 29–32 (comment pmr/ stale; paths correct); worker-launcher args 114–131; scope table + defensive default 193–217; mask/uniform-flag reads 219–226; output run dir 228–233; graph-scoped writer (graph_{split}.csv header `u,v,u_type,v_type,edge_type,reverse_edge_type`) ~439–455; graph_meta (top-level relation_registry_hash) ~457–470; probe-queries writer (row_index, query_id, head_id, tail_id, query_relation_id, inverse_query_relation_id — NO is_positive) 471–484; entity/relation mapping writers ~344–352; merge keyed row_meta + emit contract 518–620; completeness audit call 620; paths_meta (manifest; NO top-level hash) 622–638 |
-| VL-KGE scoring | `pamr/models/vlkge/score.py` | self-contained vs reference modes 82–106; split loop + rel filter 317–344; scores CSV writer (`query_id,score,is_positive`) 366–373 |
-| KGE training entry | `pamr/scripts/train_embedding.py` | REPO_ROOT 21; --embedding_scope 197; scope modes table ~355–366; oracle warning 366–370; checkpoint metadata (embedding_scope, registry manifest, mapping hashes) ~485–492; save_path handling 262–263, 438–439; CLI per-model floor values (margin 12, lr 0.1, epochs 20, batch 512) |
-| Registry acceptance | `pamr/scripts/check_registry.py` | main 46+, `--expect-raw/--expect-total` |
-| PAMR prod config (locked) | `pamr/configs/pr/pamr.yaml` | backbone repoint + protocol comments 18–31; gates (min_eval_coverage 0.95, patience 5, group_batches) ~36–44; relation_filter train_eval 52–59; seed 42 |
-| Backbone + struct configs | `pamr/configs/wikiart_mkg_v2/` | transe_clip.yaml = PAMR backbone source (../data relative paths 4–7); transe_struct.yaml (PAR backbone: use_visual/use_textual false); complex/distmult/rotate_clip.yaml = baselines; " 2" duplicates = user's, DO NOT EDIT |
-| Ablations | `pamr/configs/pr/pamr_{depth12,cls,finetune,lf_temp,seed1,par,hop3}.yaml` + `wikiart_mkg_v2_paths_h3.yaml` | each = single-diff from pamr.yaml (depth 12; readout cls; fine_tune_backbone true; listwise_softmax + lf_temperature 0.1; seed 1; struct backbone; max_hops 3 + max_tokens 9 + h3 paths_dir) |
-| Eval chain | `pamr/configs/eval/wikiart_mkg_v2_{neg_sampling,score,score_complex,score_distmult,score_rotate}.yaml` | K: train 1 / val 10 / test 10; rejection; score chain per model → `<model>_wikiart_mkg_v2_train.pt` |
-| Package identity | `pyproject.toml` (entry points pamr-train/pamr-train-pamr; package-data), `requirements.txt` (floors torch>=2.6 etc.) | |
-| Registers | `memory/bugs.md` (this file), `memory/wip.md` (paper + plan; §16 compaction snapshot, §17 integral round, §18 Phase 0, §19 defect round + FIT pointer) | |
-| Paper source of truth | `assets/paperv7.tex` (ACTIVE), `assets/analysis/integral.md` §7 (notation authority), `assets/analysis/{review,n-mmkg,overview}.md`, `assets/{result,average,count}.csv` (old values per user: ignore, freshness comes from regen) | |
+| main() body (training loop), resolve_config, alloc-conf, __main__ | `pamr/scripts/train_pamr.py` | resolve_config 106–117; `def main():` 118–990; PYTORCH_CUDA_ALLOC_CONF 121; loader+scope validation 255–~296; fine-tune gate 298–~320; optimizer AdamW 487; test_scores.csv writer 916–~922; metrics keys 963–964; __main__ 992–994 |
+| Freeze/fine-tune + temperature + score contract | `pamr/models/pr/pamr.py` | PAMR class def ~635; __init__ signature defaults 649–655 (fine_tune_backbone, lf_temperature); freeze gate 670–678; auto-detect dims 681–721 (entity_dim/rel_dim/d_model; is_rotate + has_rel_imag branches); no-path residual emb 764–771; recon_gate 771; criterion switch ~781–789; train() eval-override 791–797; _reset_parameters zero-init block 797–842; _build_tokens 836–905 (token layout, node types +1); _build_rel_tokens 903–922 (rotate cos/sin branch); forward def 1011; vlkge no_grad gate 1036–1041; no-path offset 1044–1050; listwise temperature in compute_loss ~1159–1185 |
+| B1 leakage-verification runner | `pamr/scripts/verify_paths.py` | docstring/usage 1–32; _iter_graph_rows 43–47; check_meta (nested hash) 50–~108; build_exclusion_index 111–~180; check_scope (A) 183–~200; load_probe_index ~205–222; check_own_edge_and_completeness (B) 224–~292; check_candidate_identity (C) 294–~371; main 373–437 |
+| Sampler + train loop + evaluate_kge | `pamr/helpers.py` | compute_logistic_loss 22–40; negative_sampling_uniform 45; negative_sampling_per_relation (v1) 116; negative_sampling_per_relation_fast ~195–330 (4-tuple + keep mask + hub drop); evaluate_kge ~340–430 (per-triple .item() at 361 — the eval bottleneck); train() ~757–1010 (sampler .cpu() per batch ~860; hub-skip + keep-rows alignment ~884–920; eval every epoch; checkpoint on val improve ~930–965) |
+| KGE training entry | `pamr/scripts/train_embedding.py` | REPO_ROOT 21; --embedding_scope 197; --eval_batch_size 147 (default 4096); scope modes ~355–370; loaders 392–416 (train bs=args.batch_size; val/test/sampled bs=args.eval_batch_size); scope pools ~421–432; checkpoint metadata ~486–493 (embedding_scope + registry manifest + mapping hashes); save_path handling 262–263, 438–442; CLI floors (margin 12, lr 0.1, epochs 20, batch 512) |
+| Worker v2 launcher + artifact shapes | `pamr/models/pr/preprocess.py` | module paths 29–32; _resolve_config ~70–81; worker-launcher args 114–131; scope table + defensive default 193–217; mask/flag reads 219–226; run dir 228–234; mapping writers ~344–358; graph writer + meta ~409–455 (header u,v,u_type,v_type,edge_type,reverse_edge_type); probe-queries writer ~457–484 (row_index,query_id,head_id,tail_id,query_relation_id,inverse_query_relation_id); worker run 487–508; merge keyed rows + contract 510–~620; completeness audit ~618–620; paths_meta (nested manifest) ~622–638; cleanup keeps probe queries ~649–660 |
+| VL-KGE scoring | `pamr/models/vlkge/score.py` | modes 82–106; loader + features 121–175; contract checks (rel count + registry hash) 185–211; seen marking 300–310; split loop + rel filter 317–344; scoring batches 346–363; scores CSV writer (`query_id,score,is_positive`) 366–373; score metrics json 376–402 |
+| Registry | `pamr/relation_registry.py` | RelationRegistry __init__ 15; manifest _build_manifest 130–145 (inverse_relation_id str→int); registry_hash 126–128; to_dict nests hash 162–165; inverse_id 150–154; mapping_hash 168–174 |
+| Shared ranker | `pamr/ranking.py` | compute_rank_metrics 22+ (candidate aggregation 55–105; strict/ns/lf ranking 106–240; best-positive selection 170–180) |
+| PAMR prod config (locked) | `pamr/configs/pr/pamr.yaml` | backbone repoint + protocol comments 18–31; gates (min_eval_coverage 0.95, patience 5, group_batches) ~36–44; relation_filter train_eval 52–59; seed 42; eval_batch_size 1024; lf_no_path_policy exclude |
+| Backbone + struct configs | `pamr/configs/wikiart_mkg_v2/` | transe_clip.yaml = PAMR backbone source; transe_struct.yaml (PAR: use_visual/use_textual false); complex/distmult/rotate_clip.yaml = baselines; " 2" duplicates = user's, DO NOT EDIT |
+| Ablations (output-own dirs) | `pamr/configs/pr/pamr_{depth12,cls,finetune,lf_temp,seed1,par,hop3}.yaml` | each = single-diff from pamr.yaml; paths_dir → full/ablations/<name>/ (par → full/par/; hop3 → _h3/pamr/); clone-before-run contract comments |
+| Eval chain | `pamr/configs/eval/wikiart_mkg_v2_{neg_sampling,score,score_complex,score_distmult,score_rotate}.yaml` | K: train 1 / val 10 / test 10; rejection; score chains → `<model>_wikiart_mkg_v2_train.pt`; neg_eval (top_k [1,3,5,10]) |
+| Probe | `scripts/probe_batch_size.py` + `slurm/phase_probe_bs.sbatch` | sampler cuda-vs-cpu; trainstep bs sweep; evalscore bs; JSON ACCEPTANCE lines |
+| Synth ckpt (throwaway) | `scripts/throwaway_synth_cpu_ckpt.py` | builds via helpers.get_model + score.py orchestration (feature-aligned tables + raw_margin + seen_in_train); registry from manifest (full 40-ID enumeration) |
+| Sbatch set | `slurm/{phase_b_regen,phase_c_gate,phase_c_backbone,phase_d,phase_e,cpusmoke,phase_probe_bs}.sbatch` | workspace contract (uvenv_ws_env.sh + direct PY); ACCEPTANCE lines; scratch + stage/slim mechanics in phase_c_backbone |
+| Package identity | `pyproject.toml` (name pamr 1.0.0; floors; pamr-train/pamr-train-pamr entry points), `uv.lock.cu130-era.bak` (archived), requirements.txt | |
 
-### 5.2 Workstation artifact provenance (evidence for the register's facts)
+### 6.2 Workstation artifact provenance (evidence facts)
 
 | Fact | Artifact (local GDrive sync) |
 |---|---|
-| Reported backbone = ComplEx (scenario A wrong) | `checkpoints/preproc/wikiart_mkg_v2/full/pamr/pamr_training_metrics.json` (`vlkge_checkpoint` = complex_wikiart_mkg_v2.pt; best_epoch 7; wall 448 s; peak GPU 6 GB) |
-| d_model=1536 dims echo (all 22 runs) | `full/pamr/2026062*/train.log` (`VLKGE dims: entity=768, rel=1536 → d_model=1536`) |
-| Old train/val/test probe shapes + old-test-eval degeneracy (MRR 1.0000 on 235 queries) | `full/pamr/20260629_071706/train.log` (head: paired shapes; tail: test 235/1.0000) |
-| Table-1 source values = strict/ns pairs; PAR/PAMR rows' sources | `full/vlkge/comparison_table.{csv,tex}`; PAR ≡ `full/pamr/pathlen/all/pathlen_last/metrics.json` TEST per-relation values |
-| Baseline score sets | `full/vlkge/{TransE,ComplEx,DistMult,RotatE}/{full,artist}/` (scores CSVs + metrics.json + logs) |
-| Old checkpoint set | root `checkpoints/vlkge/wikiart_mkg_v2/`: `<model>_wikiart_mkg_v2.pt` (~2.6 GB) + `_artist` (~15 MB) variants — all contract-invalid, kept as history |
+| Reported backbone = ComplEx | `checkpoints/preproc/wikiart_mkg_v2/full/pamr/pamr_training_metrics.json` (vlkge_checkpoint = complex_wikiart_mkg_v2.pt; best_epoch 7; wall 448 s; peak GPU 6 GB) |
+| d_model=1536 dims echo | `full/pamr/2026062*/train.log` |
+| Old probe shapes + old-test degeneracy (MRR 1.0000/235) | `full/pamr/20260629_071706/train.log` |
+| Table-1 sources | `full/vlkge/comparison_table.{csv,tex}`; PAR ≡ `full/pamr/pathlen/all/pathlen_last/metrics.json` TEST |
+| Baseline score sets | `full/vlkge/{TransE,ComplEx,DistMult,RotatE}/{full,artist}/` |
+| Old checkpoint set (history) | root `checkpoints/vlkge/wikiart_mkg_v2/*.pt` (contract-invalid) |
+| BFS benchmark | `src/assets/bfs.csv` (39 rows: v2 12 + v3 27); notebook `src/notebooks/bfs_benchmark_colab.ipynb` |
+| Paper | `src/assets/paperv7.tex` (ACTIVE); `src/assets/analysis/integral.md` §7 notation authority |
 
-### 5.3 FIT server (Phase A onward targets)
+### 6.3 FIT paths
 
-| Topic | Path (on FIT, ssh FIT = 172.29.74.81, user hlhdang) |
+| Topic | Path (ssh FIT) |
 |---|---|
-| Authority files | `~/AGENTS.md` (rules), `/media02/hlhdang/README.md` (map), `~/admin_note.txt` |
-| Env system | `/media02/hlhdang/scripts/{make_uv_env.sh,uvenv.sh,registry.py,install_uv.sh}`; catalog `uvenvs/registry.json`; pinned uv `tools/uv/uv` (v0.12.19); bootstrap `source tools/uvenv.sh` |
-| Proven sbatch patterns | `projects/ejepwm/slurm/{main,smoke,probe_gpu01,build}.sbatch` (gpu:1/12cpu/mem explicit, USR1+requeue, trap EXIT, ACCEPTANCE lines) |
-| Env-mint evidence | `reports/{make_t260,uv_lock_*,adaptive_lock*}.log` (py3.10 downgrade hazards) |
-| Campaign destinations (Phase A) | tree → `/media02/hlhdang/projects/pamr`; data → `projects/pamr/data/`; venv → `uvenvs/t260cu126-py312-pamr`; scratch → /dev/shm per job; artifacts sync back → `projects/pamr/checkpoints/…` |
-| Local SSH anchor | `~/.ssh/config` Host FIT (key `id_rsa_fit`) |
+| Authority files | `~/AGENTS.md`; `/media02/hlhdang/README.md`; `~/admin_note.txt` |
+| Env | `/media02/hlhdang/{tools/{uv/uv,uvenv_ws_env.sh},uvenvs/{t251cu121-py312,registry.json},.uv-cache,.uv-python}` |
+| Workspace | `/media02/hlhdang/projects/{pyproject.toml,uv.lock,ejepwm,DreamZero-Project-IML,akg-sv,pamr}` |
+| Campaign | `/media02/hlhdang/projects/pamr/{src,data,checkpoints,slurm,scripts,reports}` |
+| Evidence | `projects/pamr/reports/phaseB_revalidation_evidence.txt`; `reports/finalize_py312.log` (import-only era); `reports/smoke_gpu01.json` |
+| Local SSH anchor | `~/.ssh/config` Host FIT (key id_rsa_fit) |
 
-### 5.4 Rediscovery workflow (future turns)
+### 6.4 Rediscovery workflow
+1. Post-compaction: THIS §0 snapshot → §1 locked plan → §3 next actions.
+2. Fact conflicts: artifact evidence > register prose; user decisions > both.
+3. Anchors: re-grep content before use; ast-gate transforms; git status
+   before adds.
+4. Session-integrity: on any degeneration loop — STOP, re-read last real
+   tool output, restart from the todo list.
 
-1. Compaction recovery: read `memory/bugs.md` §1 (Phase 0 audit subsection) → §4 (FIT handoff) → this mapping; only then `memory/wip.md` §16–§19 for paper-plan context.
-2. Before touching any config: re-check the anchor row in 5.1 (line numbers may shift after edits — re-grep the anchor string, never trust stale offsets).
-3. Before any transform: ast-gate + content-search anchors (§4 lessons).
-4. Fact conflicts: artifact evidence (5.2) beats register prose; user decisions beat both.
+---
+
+## 7. Decision Record
+
+- No relations assumed symmetric by default; explicit pairs
+  isInfluencedBy↔isInfluencedOn, isPupilOf↔isTeacherOf; every other raw
+  relation gets an internal inverse integer ID (no public name);
+  hasCreatedArtwork deprecated; 22 raw + 18 internal = 40 IDs; stable
+  lexical ordering; inverses materialized within their source split.
+- PAMR query filtering uses `train_eval` for the 4 artist-to-artist
+  target relations; intermediate path edges may use every registered
+  relation.
+- Path scopes: train for validation; train+val for test; own edges
+  masked in EVERY split (query relation + registry inverse, both
+  orientations); one uniform target-traversal flag (default true).
+- Current-split VLKGE embeddings diagnostic only; candidate tails
+  split-local; VLKGE and PAMR rank identical tails (verify C); PAMR
+  aggregates per candidate with max; PAMR starts from the frozen VLKGE
+  score + zero-initialized residual; no-path candidates keep the direct
+  score + learned per-relation residual.
+- Losses: grouped_pairwise | listwise_softmax | binary_candidate;
+  prod = grouped_pairwise; lf_no_path_policy exclude; production gates
+  min_eval_coverage 0.95 + patience 5; group_batches true.
+- Self-probes = explicit no-path probes (no self-edge exists).
+- Ranking semantics centralized in pamr/ranking.py (strict/ns/
+  length-first single definition).
+- Local verification restricted to ast/py_compile + micro-tests
+  (graphml env / FIT direct-run); NO local training/GPU/data-pipeline
+  runs (macbook starved); all execution on FIT.
+- Wave scheduling: 2 jobs × 1 GPU (user decision 2026-10-05).
+- Batch-size probe decision pending (locked bs 512 = June provenance;
+  change requires user approval).
+- Session-integrity lessons: two degeneration loops earlier this
+  session — STOP on recurrence; ast-gate transforms; content-search
+  anchors; selective git staging.
+
+---
+
+## 8. Not touched (out of campaign scope)
+- Legacy `configs/eval/vlkge_score.yaml` (absolute /workspace paths),
+  pathlen_*_eval chain, wn9_img/wikiart_mkg_v1 configs (rename
+  leftovers), user's " 2.yaml" duplicates.
+- `evaluate_zero_shot.py` (lavis/transformers imports — out of regen
+  chain; not runtime deps by design).
+- Camera-ready repo fate (wip.md §3); paperv5/paperv6/paperv7 paper
+  rounds (wip.md §17).

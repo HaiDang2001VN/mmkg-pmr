@@ -992,6 +992,16 @@ Everything operational for continuing lives in `memory/bugs.md`:
   PAR + 5 ablations (no artifact clobber); Phase C/D/E sbatch scripts
   authored + FIT-staged (DefaultTime-6h hazard answered with
   --time=12:00:00). All details: bugs.md §4 audit+preflight round.
+- SESSION END 2026-10-06 (+7): contract migration to the FINAL uv
+  workspace era (t251cu121-py312 shared venv, torch 2.5.1+cu121, pamr/src
+  = 4th member, union lock 509 pkgs); Phase B revalidated under
+  pandas 3.0.6 (job 78287 ALL GREEN — canonical artifacts); Phase C0
+  machinery smoke GREEN (78141); Wave A: hub-drop sampler fix (ef005be)
+  + eval-batch flag + CPU-copy sampler (d58e57f); transe job killed by
+  diagnostic SIGINT (complex 78298 still running at compaction); admin
+  GPU-cancel block LIFTED 18:13 (canary COMPLETED). NEXT: check 78298 →
+  probe → user decisions (batch size, eval vectorization) → relaunch
+  transe → waves B/C → Phase D/E/G → aggregation. FULL state: bugs.md §0.
 - Rediscovery index: `memory/bugs.md` §5 "Reference mapping — file →
   location index" (code/config anchors 5.1, artifact-provenance evidence
   5.2, FIT paths 5.3, rediscovery workflow 5.4). Consult it before
