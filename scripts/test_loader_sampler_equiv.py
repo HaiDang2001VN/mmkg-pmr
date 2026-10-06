@@ -125,8 +125,7 @@ def part_a_real(args):
             ok = False
             print(f"  MISMATCH pass divergence batch {b}")
     print("ACCEPTANCE equiv[A/stability] " + ("OK" if ok else "FAIL"))
-    return ok, dl, filter_map, pools_train, entity_to_id, relation_to_id, \
-        train_data, slice_df, entity_to_id, relation_to_id
+    return ok, dl, filter_map, pools_train, train_data
 
 
 def part_b_sampler(dl, filter_map, pools_train, train_data, batch_size,
@@ -143,14 +142,15 @@ def part_b_sampler(dl, filter_map, pools_train, train_data, batch_size,
     heads_list = heads.tolist()
     rels_list = rels.tolist()
 
-    # eligible per row precomputed for validation
-    head, rel = dl.get_entities_and_relations()
     ok = True
     neg_hist = Counter()
     pool_sizes = {}
+    pool_sets = {}
     for rel_id in set(rels_list):
         pool = pools_train.get(rel_id, [])
         pool_sizes[rel_id] = len(pool)
+        if pool_sizes[rel_id] <= 40000:
+            pool_sets[rel_id] = set(pool)
     small_rel = min(pool_sizes, key=pool_sizes.get)
     print(f"  smallest train pool: rel={small_rel} "
           f"n={pool_sizes[small_rel]}")
@@ -169,18 +169,12 @@ def part_b_sampler(dl, filter_map, pools_train, train_data, batch_size,
             ok = False
             print(f"  MISMATCH trial {trial}: len(negs)={nh.shape[0]} "
                   f"n_kept={k}")
-        negs_pairs = list(zip(nh.tolist(), nt.tolist()))
-        for (h, t) in zip(heads_list, rels_list):
-            pass
-        for (nhv, ntv) in negs_pairs:
-            pass
-        # vectorized validation per trial
         neg_heads_v = nh.tolist()
         neg_tails_v = nt.tolist()
         neg_rels_v = nr.tolist()
         for nhv, nrv, ntv in zip(neg_heads_v, neg_rels_v, neg_tails_v):
-            pool = pools_train[nrv]
-            if ntv not in set(pool) if pool_sizes[nrv] < 20000 else True:
+            pset = pool_sets.get(nrv)
+            if pset is not None and ntv not in pset:
                 ok = False
                 print(f"  MISMATCH trial {trial}: neg {ntv} absent from "
                       f"pool({nrv})")
@@ -226,10 +220,11 @@ def main():
     ok = True
     if not args.skip_synthetic:
         ok = part_a_synthetic() and ok
-    print(f"  batch_size in trials: {args.batch_size}")
     loader_pkg = part_a_real(args)
     ok = loader_pkg[0] and ok
-    ok = part_b_sampler(*loader_pkg[1:]) and ok
+    ok = part_b_sampler(loader_pkg[1], loader_pkg[2], loader_pkg[3],
+                        loader_pkg[4], args.batch_size, args.seed,
+                        args.n_trials) and ok
     print("\nACCEPTANCE equiv ALL " + ("OK" if ok else "FAIL"))
     sys.exit(0 if ok else 1)
 
