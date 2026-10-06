@@ -12,8 +12,8 @@
 # -> verify_paths checks A/B). Torch imports run CPU-only in the universal env;
 # no GPU code path executes. Downstream GPU phases are handled separately.
 echo "ACCEPTANCE regenB node=$(hostname) start=$(date -Iseconds)"
-source /media02/hlhdang/tools/uvenv.sh
-export UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312
+source /media02/hlhdang/tools/uvenv_ws_env.sh
+PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
 export OMP_NUM_THREADS=4
 cd /media02/hlhdang/projects/pamr/src
 
@@ -30,7 +30,7 @@ run() {
   fi
 }
 
-uvpython() { "$UV_BIN" run --project . --no-sync python "$@"; }
+uvpython() { "$PY" "$@"; }
 
 # ── 1. Registry acceptance (uses the full triples CSV; CPU only) ──
 run registry uvpython -m pamr.scripts.check_registry \

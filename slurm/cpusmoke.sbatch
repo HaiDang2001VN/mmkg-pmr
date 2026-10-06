@@ -15,8 +15,8 @@
 # prod artifact dirs stay pristine: everything writes into a
 # cpu_smoke/ scratch subtree.
 echo "ACCEPTANCE cpusmoke node=$(hostname) start=$(date -Iseconds)"
-source /media02/hlhdang/tools/uvenv.sh
-export UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312
+source /media02/hlhdang/tools/uvenv_ws_env.sh
+PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
 cd /media02/hlhdang/projects/pamr/src
 
 run() {
@@ -31,7 +31,7 @@ run() {
     exit "$rc"
   fi
 }
-uvpython() { "$UV_BIN" run --project . --no-sync python "$@"; }
+uvpython() { "$PY" "$@"; }
 
 CKPT=/media02/hlhdang/projects/pamr/checkpoints/vlkge/wikiart_mkg_v2/cpu_smoke_synth_transe.pt
 SMOKE_BASE=/media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2/cpu_smoke

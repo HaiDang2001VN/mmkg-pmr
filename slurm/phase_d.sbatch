@@ -13,8 +13,8 @@
 # Gate: every Phase C checkpoint must exist (checked in-script).
 echo "ACCEPTANCE phaseD node=$(hostname) start=$(date -Iseconds)"
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
-source /media02/hlhdang/tools/uvenv.sh
-export UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312
+source /media02/hlhdang/tools/uvenv_ws_env.sh
+PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
 cd /media02/hlhdang/projects/pamr/src
 
 run() {
@@ -29,7 +29,7 @@ run() {
     exit "$rc"
   fi
 }
-uvpython() { "$UV_BIN" run --project . --no-sync python "$@"; }
+uvpython() { "$PY" "$@"; }
 
 CP=/media02/hlhdang/projects/pamr/checkpoints
 VDIR=$CP/vlkge/wikiart_mkg_v2
