@@ -372,6 +372,17 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   ~90 min with zero progress. Hardened: mirror-loop semantics,
   --num-neg arg, daemon poller + stop.set(), bench_safe FAILED lines,
   peak-mem reset per point.
+- **Pooled-eval GPU OOM (first real GPU exercise)** (afc79eb) — chunk
+  bound was score-matrix elements (16M) but the fused multimodal
+  forward materializes ~a dozen (rows×768) fp32 tensors/call →
+  b×w = 229×8192 ≈ 1.9M rows = ~33 GB transient on A100-40; OOM at
+  `result + structural` (5.77 GiB alloc) after epoch-1 train finished
+  cleanly (41 min). Budget is now forward ROWS 131,072 (~6-8 GB
+  transient) + expandable_segments in the backbone sbatch. Lesson:
+  chunk bounds must be designed for the forward's own materialization,
+  not only the score tensor. helpers.train also gained a 10% heartbeat
+  print (large epochs were otherwise silent — that cost a misdiagnosis
+  and one wasted SIGINT).
 - **78298 legacy-eval grind** (killed, vectorize-first policy) — 4h13m
   at 99.4% single-core in the per-triple val eval; stdout fully
   buffered (pre-unbuffered sbatch era). Lesson: zero output + high
