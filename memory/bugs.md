@@ -36,14 +36,18 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   `projects/uv.lock` (509 pkgs); pamr 1.0.0 import battery OK; registry
   noted. Runtime = direct `…/t251cu121-py312/bin/python -m …`.
 
-### RUNNING at compaction time
-- **Job 78298** (ComplEx backbone, gpu03, started 16:12 +7) — was at
-  2h09m elapsed, healthy but slow (old in-memory code: CUDA-input
-  sampler, buffered logs, no eval_batch_size). Expect completion ≈ 5-8 h
-  total. On finish: USR1/EXIT stage-sync + slim copyback should land
+### RUNNING at snapshot update (2026-10-06 late)
+- **Job 78298** (ComplEx backbone, gpu03) — RUNNING past 2h53m. Note:
+  gpu03 co-tenant pressure (`wstack` jobs) pushed node free RAM to
+  3.2 GB at one reading — monitor, but the job survived dataset load.
+  On finish: USR1/EXIT stage-sync + slim copyback should land
   `checkpoints/vlkge/wikiart_mkg_v2/complex_wikiart_mkg_v2_train.pt`
-  (check for `stage_` + canonical files; the vlkge dir was EMPTY at
-  last check).
+  (check for `stage_` + canonical files).
+- **Job 78320** (batch-size probe) — RUNNING on gpu01 (user decision:
+  probe informs, batch-size change needs explicit approval).
+- **Job 78321** (parity_eval, CPU) — evaluate_kge vectorization parity
+  gate (legacy per-triple vs pooled batched on real val/sampled-train
+  slices). CPU-only jobs run via slurm; login node = login/launch only.
 
 ### BLOCKED → NOW UNBLOCKED (verify before use)
 - **Admin GPU-cancel block LIFTED** (18:13 +7): canary 78314 COMPLETED
@@ -57,28 +61,17 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   remains mandatory.
 
 ### NEXT ACTIONS (in order)
-1. **Check 78298 completion** + validate slim-copyback landing
+1. **Gate on 78321 parity** (`reports/parity_78321.out`): both parts OK
+   → vectorization accepted. FAIL → diagnose before any wave relaunch.
+2. **Collect 78320 probe numbers** (`reports/probe_bs_78320.out`) →
+   user decides training batch size (locked 512 = June provenance).
+3. **78298 completion** + validate slim-copyback contract
    (`complex_wikiart_mkg_v2_train.pt`, no optimizer keys, registry
-   manifest + scope metadata present). If still running: leave alone.
-2. **Submit the batch-size probe** (`slurm/phase_probe_bs.sbatch`, GPU,
-   ~15 min): sampler cuda-vs-cpu wall, trainstep @ bs {512, 2048, 8192},
-   evalscore @ {512, 4096}. JSON ACCEPTANCE lines. NOT node gpu03 if its
-   RAM is starved by others (health: `sinfo -N -o '%N %T %e'`).
-3. **Batch-size decision (user)**: probe data decides whether Phase C
-   backbones keep the locked bs 512 (June-provenance protocol) or adopt
-   a larger bs (changes training dynamics + lr interaction — a
-   protocol change that needs explicit user approval).
-4. **evaluate_kge vectorization decision (user)**: the per-epoch val
-   eval (208K triples × per-triple `.item()` CUDA syncs) was the
-   measured 78297 wall hog (SIGINT traceback: helpers.py:361). A
-   batched/vectorized rewrite is protocol-neutral (ranks unchanged) but
-   needs parity micro-tests before adoption. Options: (a) relaunch
-   transe now with current fixes (slow evals ~25 min/epoch tolerated),
-   (b) vectorize first (half-day CPU work), then relaunch everything.
-5. **Relaunch transe backbone** (78297 replacement) with ALL fixes:
-   PYTHONUNBUFFERED, CPU-copy sampler, --eval_batch_size 4096, hub-drop,
-   OMP/MKL=10. Then waves B (distmult+rotate) + C (struct).
-6. Phase D chain → Phase E/G → aggregation (§3 below).
+   manifest + `embedding_scope=train`). If still running: leave alone.
+4. **Relaunch transe backbone** with ALL fixes (PYTHONUNBUFFERED,
+   CPU-copy sampler, vectorized eval, hub-drop, OMP/MKL=10, decided bs).
+5. Waves B (distmult+rotate) + C (struct) → Phase D → Phase E/G →
+   aggregation (§3 below).
 
 ---
 
@@ -218,6 +211,33 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 - Batch-size probe authored (520a0aa) — blocked by the admin block
   (3 cancels + canary), which LIFTED at 18:13 (canary 78314 COMPLETED).
 
+### Vectorization + Phase-D pre-fix round (2026-10-06, decisions: vectorize first + probe-then-decide)
+- **Phase D baseline-scoring clobber defect found by careful re-read**
+  (would only bite at Phase D runtime): all four score configs had NO
+  `output_dir` → score.py falls back to the prepare root → four baseline
+  chains overwrite one shared `{split}_scores.csv`; Phase D's single
+  evaluate step would rank only the LAST chain (RotatE) and verify-C
+  would compare PAMR against RotatE instead of TransE. Fixed: per-model
+  `output_dir …/full/vlkge/<Model>/` (June layout) in the 4 score
+  configs + 4 new `neg_eval_{transe,complex,distmult,rotate}.yaml`
+  (+`scores_dir`) + phase_d.sbatch runs evaluate ×4 and verify-C reads
+  `full/vlkge/TransE/test_scores.csv`. `neg_eval.yaml` retained unused.
+- **evaluate_kge vectorized** (81d9b31): dispatch (not bidirectional +
+  pools) → `_evaluate_kge_pooled` (chunked per-relation forwards.
+  Truth-mask −inf + true-tail unmask + stable argsort = candidate index
+  space identical to the reference; forwards flattened to 1D because
+  the fusion/inductive paths are 1D-only). Reference loop preserved
+  verbatim as `_evaluate_kge_per_triple`. Parity harness
+  `scripts/test_eval_kge_parity.py` (Part 0 synthetic anchors: ranks
+  1,7,1,1,4 → rel0 5/7, overall 19/28, H@1 3/5 — first-run anchor
+  arithmetic was botched, implementations agreed throughout; Part 1
+  real slices val 400 + sampled-train 200, per-relation exact).
+  Parity gate = slurm job 78321 (CPU-only).
+- **AGENTS.md refreshed to the workspace era** (env block, runtime
+  contract, torch-family gotcha, §6.4 pointer, slurm-first commands).
+- Login-node etiquette locked by user: ALL compute — including CPU
+  micro-tests — runs as slurm jobs; login node serves login/launch only.
+
 ---
 
 ## 3. Remaining program (Phases C→H)
@@ -235,10 +255,13 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
    consumer contract checks (relation count 40 / registry hash /
    embedding_scope=train).
 5. **Phase D** (one GPU job): `sbatch slurm/phase_d.sbatch` — gate on 5
-   ckpts → score.py ×4 (score chains; TransE scores double as the
+   ckpts → score.py ×4 (score chains into output-own
+   `full/vlkge/<Model>/` dirs; TransE chain doubles as the
    TransE-baseline row) → PAMR prod (pamr.yaml) → clone+PAR
-   (pamr_par.yaml) → evaluate.py → verify_paths check C (identity, test
-   split, prepared-queries cross-check).
+   (pamr_par.yaml) → evaluate.py ×4 (per-model `neg_eval_*.yaml` →
+   `full/vlkge/<Model>/metrics.json`) → verify_paths check C (identity,
+   test split, PAMR scores vs `full/vlkge/TransE/test_scores.csv`,
+   prepared-queries cross-check).
 6. **Phase E/G** (one GPU job): `sbatch slurm/phase_e.sbatch` — seed1 +
    finetune + depth12 + cls + lf_temp (clone-before-run) + hop3 (on
    _h3/pamr paths). n=2 std (ddof=1) for PAMR rows.
@@ -248,8 +271,10 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
    result.csv/average.csv (grouped-header format) → delta vs paperv7 →
    camera-ready refresh if accepted (notification 2026-10-12).
 9. **PAMR-family scoring caveat**: baseline score chains score ONLY the
-   prepared target-relation queries; verify C needs PAMR test_scores.csv
-   (paths_dir) vs VL-KGE test_scores.csv (prepare dir).
+    prepared target-relation queries into per-model dirs
+    (`full/vlkge/<Model>/`); verify C reads PAMR `test_scores.csv`
+    (paths_dir) vs the TransE chain's `test_scores.csv`
+    (`full/vlkge/TransE/`).
 
 ---
 
@@ -313,11 +338,14 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 ### Etiquette (every sbatch)
 - Diagnose reports/<job>.out/.err BEFORE resubmitting; same failure twice
   → STOP + write reports/blocker_<name>.md + escalate.
+- Login node = login/launch/inspection ONLY — zero compute there,
+  including CPU micro-tests (slurm CPU-only jobs instead; no --gres,
+  `--cpus-per-task=12 --mem` sized, short --time).
 - Self-diagnosing ACCEPTANCE lines; wall ≤ 45 h; pending GPU pressure ≤
   4-GPU quota; batch verification jobs; cancel stale PENDING.
 - srun --overlap for in-job inspection; -N1 required with --nodelist
   (missing -N1 = "Node count specification invalid"); watch node RAM
-  (sinfo %e) — gpu03 was at 6.8 GB free once.
+  (sinfo %e) — gpu03 was at 6.8 GB free once, 3.2 GB under two jobs.
 
 ---
 
@@ -346,6 +374,13 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   workspace-era torch 2.5.1+cu121 pin; the CUDA-13-driver CUBLAS bug
   family does not apply to driver 535/555; dormant mean-pool fallback
   remains as contingency).
+- **Baseline score-chain clobber** (2026-10-06, fixed pre-flight) — no
+  `output_dir` in the 4 score configs → prepare-root overwrite race +
+  evaluate/verify-C reading the wrong (last-writer) model's scores.
+  Per-model score dirs + 4 eval configs + phase_d repoint (§2 round
+  note). remnant: `neg_eval.yaml` retained unused; Phase G aggregation
+  must point at `full/vlkge/<Model>/metrics.json` (compare_vlkge.py
+  SOURCES still reference June-era `{full,artist}` subdirs).
 - **Known-swap CSVs** — old result.csv H1/H3 TransE↔PAMR per-relation
   columns swapped; untrusted; B-queue regenerates.
 
@@ -440,8 +475,14 @@ never trust stale offsets).
   (graphml env / FIT direct-run); NO local training/GPU/data-pipeline
   runs (macbook starved); all execution on FIT.
 - Wave scheduling: 2 jobs × 1 GPU (user decision 2026-10-05).
-- Batch-size probe decision pending (locked bs 512 = June provenance;
-  change requires user approval).
+- evaluate_kge vectorization FIRST (user 2026-10-06): parity-gated
+  pooled path before the transe relaunch; complex (78298) finishes on
+  the old in-memory code (results identical, only slower).
+- Batch size: probe-first (user 2026-10-06); any deviation from the
+  locked bs 512 needs explicit approval after 78320 numbers.
+- Login-node etiquette (user 2026-10-06): ALL compute — including
+  CPU-only micro-tests — runs as slurm jobs; login node serves
+  login/launch only.
 - Session-integrity lessons: two degeneration loops earlier this
   session — STOP on recurrence; ast-gate transforms; content-search
   anchors; selective git staging.

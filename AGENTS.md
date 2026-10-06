@@ -7,7 +7,7 @@ transformer as tokens and PAMR learns a path-based residual per candidate tail
 (`ŷ = g + Δ`, Δ zero-initialized). The package was renamed `pmr` → `pamr`
 (2026-10); no `pmr.` references matter anymore.
 
-Defect register + experiment program: `memory/bugs.md` (READ the §5.4
+Defect register + experiment program: `memory/bugs.md` (READ the §6.4
 rediscovery workflow after compaction). Paper status: `memory/wip.md`.
 
 ## Layout
@@ -28,14 +28,23 @@ rediscovery workflow after compaction). Paper status: `memory/wip.md`.
 - **FIT cluster** via `ssh FIT`. Cluster rules read order on FIT:
   `~/AGENTS.md` → `/media02/hlhdang/README.md` → `~/admin_note.txt`.
   Full verified handoff (SLURM limits, lifecycle, sbatch patterns, program):
-  `memory/bugs.md` §4–§5.3.
-- **Universal env**: `/media02/hlhdang/uvenvs/main-py312` (CPython 3.12.14,
-  torch 2.11.0+cu130 trio). **NO new venvs** — bind the project with
-  `uv lock` + `UV_PROJECT_ENVIRONMENT=/media02/hlhdang/uvenvs/main-py312
-  uv sync --locked`; keep added packages minimal and note them in
-  `uvenvs/registry.json`.
-- uv binary pinned at `tools/uv/uv`; bootstrap shells with
-  `source /media02/hlhdang/tools/uvenv.sh`.
+  `memory/bugs.md` §4–§6.
+- **Environment = uv WORKSPACE** (final era, 2026-10-03+): workspace root
+  `/media02/hlhdang/projects/pyproject.toml` (virtual; members ejepwm,
+  DreamZero-Project-IML, akg-sv, **pamr/src**); THE lock is
+  `projects/uv.lock` (union lock, ~509 pkgs); ONE shared venv
+  `/media02/hlhdang/uvenvs/t251cu121-py312` (CPython 3.12.14,
+  torch 2.5.1+cu121 / tv 0.20.1 / ta 2.5.1, numpy 2.5.3, pandas 3.0.6,
+  sklearn 1.9.1). **NO new venvs/conda/pip-venv — ever**; re-lock via
+  `cd /media02/hlhdang/projects && uv lock && uv sync --locked --no-dev
+  --all-packages` (uv binary pinned at `tools/uv/uv`); only the torch
+  triad + py3.12 are pinned — resolver deadlocks extend the root
+  `[tool.uv] override-dependencies` list, never hand-editing pins.
+- Runtime: `source /media02/hlhdang/tools/uvenv_ws_env.sh`, then run via
+  the direct venv python `uvenvs/t251cu121-py312/bin/python -m …`. NEVER
+  bare `uv run --project` (spawns a forbidden repo-local `.venv`).
+- Compute etiquette: ALL compute (incl. CPU-only micro-tests and eval
+  chains) runs as slurm jobs; the login node serves login/launch only.
 - Compute nodes are OFFLINE: everything (env, data, code) staged on the login
   node before `sbatch`.
 - **This workstation (Mac)**: analysis, editing, verification only — no
@@ -44,17 +53,21 @@ rediscovery workflow after compaction). Paper status: `memory/wip.md`.
 ## Commands (regen chain order)
 
 ```bash
-python -m pamr.scripts.check_registry --config configs/wikiart_mkg_v2/transe_clip.yaml --expect-raw 22 --expect-total 40
-python -m pamr.scripts.prepare        --config configs/eval/wikiart_mkg_v2_neg_sampling.yaml
-python -m pamr.scripts.train_pamr_preprocess?  # see below
-python -m pamr.models.pr.preprocess   --config configs/pr/wikiart_mkg_v2_paths.yaml   # path extraction
-python -m pamr.scripts.train_embedding --config configs/wikiart_mkg_v2/transe_clip.yaml (--save_path ...)
-python -m pamr.scripts.train_pamr     --config configs/pr/pamr.yaml  [ablation: pamr_{finetune,hop3,depth12,cls,lf_temp,seed1,par}.yaml]
-python -m pamr.scripts.verify_paths   ...   # checks A/B/C on regenerated artifacts
-python -m pamr.models.vlkge.score / pamr.scripts.evaluate --config configs/eval/wikiart_mkg_v2_score*.yaml
+# Every command runs inside a slurm job (CPU-only jobs for pure-CPU steps,
+# GPU jobs for training/scoring). Environment per job:
+#   source /media02/hlhdang/tools/uvenv_ws_env.sh
+#   PY=/media02/hlhdang/uvenvs/t251cu121-py312/bin/python
+$PY -m pamr.scripts.check_registry --config configs/wikiart_mkg_v2/transe_clip.yaml --expect-raw 22 --expect-total 40
+$PY -m pamr.scripts.prepare        --config configs/eval/wikiart_mkg_v2_neg_sampling.yaml
+$PY -m pamr.models.pr.preprocess   --config configs/pr/wikiart_mkg_v2_paths.yaml   # path extraction
+$PY -m pamr.scripts.train_embedding --config configs/wikiart_mkg_v2/transe_clip.yaml (--save_path ...)
+$PY -m pamr.scripts.train_pamr     --config configs/pr/pamr.yaml  [ablation: pamr_{finetune,hop3,depth12,cls,lf_temp,seed1,par}.yaml]
+$PY -m pamr.scripts.verify_paths   ...   # checks A/B/C on regenerated artifacts
+$PY -m pamr.models.vlkge.score / pamr.scripts.evaluate --config configs/eval/wikiart_mkg_v2_score*.yaml
 ```
 (Exact flag sets live in each config; smoke variants mirror prod under
-`configs/{eval,pr}/smoke_*.yaml`.)
+`configs/{eval,pr}/smoke_*.yaml`. Turnkey chains live in `slurm/*.sbatch` —
+prefer submitting those over hand-rolled command sequences.)
 
 ## Protocol facts (locked)
 
@@ -72,7 +85,13 @@ python -m pamr.models.vlkge.score / pamr.scripts.evaluate --config configs/eval/
 
 ## Known issues / gotchas
 
-- **torch ≥ 2.6 floor**: CUDA 13 drivers break `nn.MultiheadAttention` CUBLAS on torch 2.5 (mean-pool fallback exists, dormant). FIT universal env runs 2.11.0+cu130.
+- **torch 2.5.1+cu121 is the pinned family** (workspace lock). The era of
+  cu130 wheels + driver-535 nodes broke `nn.MultiheadAttention` CUBLAS —
+  resolved by the workspace's cu121 triad; the mean-pool fallback in
+  `pamr.py` stays dormant as contingency. Driver→CUDA gate map
+  (535→cu121 only, 550→cu124, 560→cu126, 570→cu128, 580→cu130): a family
+  change (new driver/wheels) requires an on-node smi+matmul proof job
+  first — see `memory/bugs.md` §2/§4.
 - **Sample caches v4**: `*.v4.samples.pkl` carries a manifest (registry hash, max_hops, whitelist hash) — mismatched caches rebuild, never silently reused.
 - **ID validation**: `PAMRDataset` validates query IDs against entity/relation names; `node_type` tokens are 1/2/3 plus padding offset 0 (embedding size 4).
 - **Legacy checkpoints are history only** (`checkpoints/vlkge/wikiart_mkg_v2/*.pt`): trained before the registry/leakage corrections — contract-invalid.

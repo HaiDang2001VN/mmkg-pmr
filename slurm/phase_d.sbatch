@@ -81,17 +81,28 @@ run clone-par clone_paths "$PRE/full/par"
 run pamr-par uvpython -m pamr.scripts.train_pamr \
   --config pamr/configs/pr/pamr_par.yaml
 
-# ── 4. Baseline metric computation (CPU inside the same job) ──
-run evaluate-baselines uvpython -m pamr.scripts.evaluate \
-  --config pamr/configs/eval/wikiart_mkg_v2_neg_eval.yaml
+# ── 4. Baseline metric computation (CPU steps inside the same GPU job) ──
+# One evaluate invocation per baseline: each scores_dir holds that model's
+# own {split}_scores.csv, so the four metrics.json files are output-own.
+run evaluate-transe uvpython -m pamr.scripts.evaluate \
+  --config pamr/configs/eval/wikiart_mkg_v2_neg_eval_transe.yaml
+run evaluate-complex uvpython -m pamr.scripts.evaluate \
+  --config pamr/configs/eval/wikiart_mkg_v2_neg_eval_complex.yaml
+run evaluate-distmult uvpython -m pamr.scripts.evaluate \
+  --config pamr/configs/eval/wikiart_mkg_v2_neg_eval_distmult.yaml
+run evaluate-rotate uvpython -m pamr.scripts.evaluate \
+  --config pamr/configs/eval/wikiart_mkg_v2_neg_eval_rotate.yaml
 
-# ── 5. verify C: PAMR test scores vs TransE train-scope baseline scores ──
+# ── 5. verify C: PAMR test scores vs the TransE train-scope baseline ──
+# The TransE chain is the PAMR backbone — candidate-identity holds
+# against it, against $PRE/full/vlkge/TransE/test_scores.csv (never the
+# prepare root, which holds no score CSVs).
 run verify-C uvpython -m pamr.scripts.verify_paths \
   --run-dir "$SRCP" \
   --triples /media02/hlhdang/projects/pamr/data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv \
   --splits test \
   --pamr-scores "$SRCP/test_scores.csv" \
-  --vlkge-scores "$PRE/test_scores.csv" \
+  --vlkge-scores "$PRE/full/vlkge/TransE/test_scores.csv" \
   --scores-split test \
   --prepared-queries "$PRE/test_queries.csv"
 
