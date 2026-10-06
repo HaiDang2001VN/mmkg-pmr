@@ -57,6 +57,18 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   (communal cleanup). Pre-flight `df -h /media02` before any >5 GB write
   remains mandatory.
 
+### Probe 78333 results (rc=0, gpu01, 2026-10-06) — user batch-size decision pending
+- trainstep per-triple wall: bs512=305 µs, bs2048=147 µs (2.1×),
+  bs8192=119 µs (2.6×) — diminishing returns past 2048.
+- GPU util NEVER exceeds 9.1% at ANY batch size (bs512 9.1%,
+  bs2048 5.2%, bs8192 2.8%) — the backbone loop is HOST-bound
+  (KGDataset .iloc loader + python sampler) at every size; batch size
+  alone cannot raise GPU utilization, only cut per-triple wall.
+- evalscore per-row flat (~0.08 ms/row, bs512≈bs4096) — loader-side.
+- Sampler share: cuda-inputs vs cpu-inputs = 95 vs 80 ms/batch.
+- Wall models (transe, 9.0M triples/epoch, 20 epochs): bs512 ≈ 15.3 h
+  train+ 2 requeues; bs2048 ≈ 7.3 h; bs8192 ≈ 6 h.
+
 ### NEXT ACTIONS (in order)
 1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
    + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
