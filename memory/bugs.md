@@ -69,6 +69,28 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 - Wall models (transe, 9.0M triples/epoch, 20 epochs): bs512 ≈ 15.3 h
   train+ 2 requeues; bs2048 ≈ 7.3 h; bs8192 ≈ 6 h.
 
+### Host-path engineering round (2026-10-06, user: 512 now + engineer, then combined with bs 2048)
+- DECISION EVOLUTION: user first chose "keep 512 + engineer host path",
+  then combined it: bs 2048 adopted for ALL five backbone configs
+  (transe/complex/distmult/rotate/struct; June was 512/1024; lr 0.1
+  UNCHANGED — dynamics caveat registered).
+- **KGDataset tensorization**: ID triple built once as int64 tensors;
+  __getitem__ = tensor indexing (was per-row pandas .iloc on a
+  15.7M-row frame). Batch content bit-identical (shuffle generator
+  external; no RNG inside the dataset); NaN guard raises loudly.
+- **negative_sampling_per_relation_fast grouped-vectorized**: one
+  pre-batched randint per relation group covers the 16-attempt budget;
+  per-row rejection walks plain python ints. Uniform-over-eligible
+  distribution preserved; hub-drop + 4-tuple keep-mask unchanged; RNG
+  stream shift = distribution-faithful (June stream already retired
+  with the hub-drop fix).
+- **EQUIVALENCE GATE 78344 ALL OK** (rc=0, 2m54s): A/synthetic +
+  A/nan-guard + A/stability + B/validity (kept=3,072, dropped=0,
+  pool-membership + no-truth clean).
+- Probe-based wall model at 2048 + engineering: transe 20 epochs ≈
+  6-9 h single wall (vs ~15 h at 512 unengineered).
+- Wave relaunched: 78347 (transe) + 78348 (complex) at bs 2048.
+
 ### NEXT ACTIONS (in order)
 1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
    + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
