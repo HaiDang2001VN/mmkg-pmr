@@ -91,6 +91,31 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   6-9 h single wall (vs ~15 h at 512 unengineered).
 - Wave relaunched: 78347 (transe) + 78348 (complex) at bs 2048.
 
+### INCIDENT 2026-10-07/08: /media02/hlhdang WIPED (hard blocker, needs user)
+- Evidence chain: 78351 (transe) FAILED at 00:45:02 (~16:02 UTC Oct 6,
+  during its first pooled eval — output lost with the FS); ssh now
+  lands on login02 (round-robin) and /media02/hlhdang is ABSENT on
+  login01-ish view, login02 AND compute nodes (gpu04 probe job 78437/
+  78438 COMPLETED — account still executes); /media02 root mtime
+  Oct 7 11:24 = reorganization event; no hlhdang entry anywhere incl.
+  /media02/recovery; `mkdir /media02/hlhdang` = Permission denied
+  (parent root-owned) → deliberate admin action, not NFS rot.
+- Context: the watch UI earlier showed a "Gia hạn thời gian sử dụng
+  (Renew Lease)" banner → consistent with an expired account lease
+  and admin storage cleanup. admin_note.txt unchanged (still points
+  at /media02/hlhdang). ~/AGENTS.md (home) intact but pre-dates it.
+- LOSS ASSESSMENT: nothing irreplaceable — every artifact was
+  regenerable; all code/registers/configs/sbatch live in the LOCAL
+  git (through e9f1dfd); data 3.4 GB intact on the workstation;
+  no slim backbone checkpoint had landed (best in-flight = 78351
+  epoch-1, unfinished); Phase B artifacts regenerate in ~25 min.
+- SURVIVES: account can run jobs (both probes COMPLETED today);
+  /home/hlhdang intact (~18 GB free — policy says dotfiles only).
+- UNBLOCK PATH: user renews the lease (watch UI banner flow) or
+  contacts the admin to restore /media02/hlhdang ownership; then
+  restage from the workstation (rsync tree+data ~3.5 GB) + re-run
+  Phase B + gate + waves — fully scripted, ~1 h to full redelivery.
+
 ### NEXT ACTIONS (in order)
 1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
    + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
