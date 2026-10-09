@@ -116,6 +116,26 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   restage from the workstation (rsync tree+data ~3.5 GB) + re-run
   Phase B + gate + waves — fully scripted, ~1 h to full redelivery.
 
+### INTEGRITY CHECK after admin restore (2026-10-08, user-announced) — PASS
+- /media02/hlhdang restored as of an Oct 6 14:46 UTC snapshot: ownership
+  hlhdang + writable (write-test passed, test file removed).
+- Verified present: pamr tree {src,data,checkpoints,slurm,scripts,
+  reports}; ENGINEERED src (pooled eval + rows_budget + enumerate fix +
+  bs-2048 configs); data 1.7 GB (triples + features); FULL preproc
+  artifact set for both full/pamr AND _h3/pamr (paths CSVs + metas +
+  graph metas + mappings + manifest + probe queries) + prepare queries
+  + metadata.json; env system (tools/uv exec + uvenv_ws_env.sh +
+  uvenvs/t251cu121-py312 with torch 2.5.1+cu121 + pandas 3.0.6 +
+  registry.json with pamr row); workspace root with pamr/src member +
+  cu121 sources + uv.lock (8,738 lines); reports/ 84 files.
+- Known deltas to fix during recovery (NOT yet done, per user request):
+  (1) FIT bugs.md lacks the incident entries (local-only commits
+  bd7769d/dbb903c + later); (2) stale src/uv.lock at FIT src root (the
+  relocated one removed locally in a3ff67f); (3) stale
+  projects/pamr/src-memory-and-assets/ dir (rsync-mishap artifact).
+- Lost with the snapshot boundary: 78351's post-14:46 output (the job
+  died at 16:02 UTC; regenerable).
+
 ### NEXT ACTIONS (in order)
 1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
    + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
