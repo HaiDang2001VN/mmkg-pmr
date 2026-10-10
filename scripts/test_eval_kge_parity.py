@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import torch
 
 SRC = Path(__file__).resolve().parent.parent
@@ -221,7 +222,19 @@ def part1(config_path, n_val, n_train, seed, device):
         ("val", val_data, pools_val, n_val),
         ("sampled_train", train_data, pools_train, n_train),
     ):
-        slice_df = frame.sample(n=min(n, len(frame)), random_state=seed)
+        # Force artist2artist rows into the slice: the 2026-10-10 guard
+        # defect lived exactly in the split-local artist pools (unsorted
+        # pre-fix); random slices missed them and the parity gate stayed
+        # blind to the class.
+        artist_rel_ids = sorted(getattr(dl, "artist2artist_ids", None)
+                                or set())
+        artist_rows = frame[
+            frame["relation_id"].isin(artist_rel_ids)].head(100)
+        slice_df = pd.concat(
+            [frame.sample(n=min(n, len(frame)), random_state=seed),
+             artist_rows], ignore_index=True)
+        print(f"  {label} slice: {len(slice_df)} rows "
+              f"({len(artist_rows)} artist-rel forced)")
         ds = KGDataset(slice_df, entity_to_id, relation_to_id)
         loader = DataLoader(ds, batch_size=64, shuffle=False)
 

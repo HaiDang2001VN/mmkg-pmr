@@ -259,7 +259,11 @@ class KnowledgeGraphDataLoader:
         grp = self.data.groupby(['mode', 'rid'])['tid'].unique()
         pools = {'train': {}, 'val': {}, 'test': {}}
         for (mode, rid), arr in grp.items():
-            pools[mode][int(rid)] = [int(x) for x in arr.tolist()]
+            # Sorted: pools are semantically sets, and consumers (the
+            # batched evaluator's searchsorted masking) rely on the
+            # ordering. The all-splits pools sort in
+            # _build_rel2tails_from_df; the per-mode pools must too.
+            pools[mode][int(rid)] = sorted(int(x) for x in arr.tolist())
         
         self.relation_to_valid_tails_train = pools['train']
         self.relation_to_valid_tails_val = pools['val']
