@@ -136,6 +136,36 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 - Lost with the snapshot boundary: 78351's post-14:46 output (the job
   died at 16:02 UTC; regenerable).
 
+### NetGate W1 round (2026-10-10, user: probe internet; W1 RELAUNCH DEFERRED)
+- **NetGate 78622 (gpu04, 1 s): COMPUTE NODES HAVE INTERNET** —
+  huggingface.co 200, api.wandb.ai reachable (404 on root), pypi.org
+  200, DNS fine, no proxy env. The documented "compute nodes
+  UNVERIFIED/never download" is policy-conservative, not a network
+  constraint. Implications recorded: HF streaming would work (still
+  unnecessary — local-file pipeline); wandb online would work (user
+  chose NO wandb — decision stands); staging-everything remains the
+  robustness rule for training jobs.
+- **W1 v2 outcome before deferral**: 78597 (transe) FAILED rc=1 in the
+  val eval — the pooled evaluator's loud guard FIRED
+  ("Eval tail absent from its relation candidate pool (relation 12,
+  tail 220397)") — its supersets premise is empirically false for at
+  least one real val row (parity slice missed it). The legacy
+  tolerated this case (candidates = pool - truths + {t}); the batched
+  shared-pool path cannot. 78598 (complex) hit the same path;
+  CANCELLED at 00:43:34 per prior approval (nothing banked — ckpt
+  save happens after eval, which never completed).
+- FIX DESIGN (deferred with the relaunch): (1) census probe — full
+  val/test scan for tail∉pool counts per relation + anatomy of
+  (rel 12, t 220397) incl. which pool-policy branch applies; (2) union
+  fix — tail-∉-pool rows route through the exact legacy per-triple
+  branch, rest stays batched; synthetic t-outside-pool parity case;
+  (3) CPU re-gate; (4) relaunch W1 on healthy nodes.
+- Also this round: Phase B REGEN re-run COMPLETE ALL GREEN (78592,
+  13m58s) — the restored snapshot lacked graph CSVs only because our
+  own pre-incident reclaim deleted them; regen restored the full
+  contract set (registry hash ff50ee5aabe9ba5e..., verify A/B PASS all
+  splits both configs, fresh 2026-10-10 lineage).
+
 ### NEXT ACTIONS (in order)
 1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
    + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
