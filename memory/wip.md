@@ -1002,6 +1002,33 @@ Everything operational for continuing lives in `memory/bugs.md`:
   GPU-cancel block LIFTED 18:13 (canary COMPLETED). NEXT: check 78298 →
   probe → user decisions (batch size, eval vectorization) → relaunch
   transe → waves B/C → Phase D/E/G → aggregation. FULL state: bugs.md §0.
+## 20. Post-submission campaign round — storage-wipe recovery to W1 relaunch (2026-10-08 → 10-10)
+
+- **Incident**: /media02/hlhdang wiped cluster-wide (Oct 6 16:02 → Oct 7
+  11:24 window; lease-renew context). Admin restored an Oct 6 14:46 UTC
+  snapshot; integrity check PASS. Nothing irreplaceable lost (local git
+  authoritative; Phase B artifacts re-verified then RE-REGEN'd to
+  contract-complete state after the graph-CSV reclaim surfaced).
+- **Recovery round ALL PASS**: disk reclaim (cpu_smoke), mirror sync,
+  env gate 78590 (torch 2.5.1+cu121 battery + uv lock --check +
+  loader/sampler harness), Phase B regen 78592 (13m58s, verify A/B PASS
+  both configs, hash ff50ee5aabe9ba5e..., fresh 2026-10-10 lineage).
+- **Engineering state**: evaluate_kge batched pooled path (parity-gated
+  78321) + KGDataset tensorized IDs + grouped-vectorized sampler +
+  backbone bs 2048 (all 5 configs; June was 512/1024, lr 0.1 kept).
+- **NetGate 78622**: compute nodes HAVE internet (hf 200 / wandb
+  reachable / pypi 200) — AGENTS.md network row corrected 2026-10-10;
+  HF-streaming still unnecessary; no wandb (user decision).
+- **W1 guard defect (relaunch deferred)**: pooled-eval loud guard
+  "tail absent from its relation candidate pool" FIRED on real val
+  (rel 12, tail 220397, transe 78597; complex 78598 cancelled mid-eval,
+  nothing banked). Legacy tolerated tail-outside-pool silently; fix =
+  census probe → union fix (outlier rows route through the exact legacy
+  per-triple branch) → parity re-gate → relaunch.
+- Waves/Phase D/E/G/aggregation chain unchanged (bugs.md §3). Paper
+  impact: none until aggregation (notification 2026-10-12; camera-ready
+  = corrected numbers if accepted).
+
 - Rediscovery index: `memory/bugs.md` §5 "Reference mapping — file →
   location index" (code/config anchors 5.1, artifact-provenance evidence
   5.2, FIT paths 5.3, rediscovery workflow 5.4). Consult it before
