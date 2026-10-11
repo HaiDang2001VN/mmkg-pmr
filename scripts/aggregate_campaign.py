@@ -121,9 +121,15 @@ def write_grouped_result(df, out_path):
     df = df[cols]
     lines = [",".join(header1), ",".join(cols)]
     for rec in df.to_numpy().tolist():
-        lines.append(",".join("" if v is None or (isinstance(v, float)
-                                                 and np.isnan(v)) else v
-                              for v in rec))
+        cells = []
+        for v in rec:
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                cells.append("")
+            elif isinstance(v, float):
+                cells.append(f"{v:.4f}")
+            else:
+                cells.append(str(v))
+        lines.append(",".join(cells))
     out_path.write_text("\n".join(lines) + "\n")
 
 
