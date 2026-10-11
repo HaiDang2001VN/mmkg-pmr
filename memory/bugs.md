@@ -166,6 +166,35 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   contract set (registry hash ff50ee5aabe9ba5e..., verify A/B PASS all
   splits both configs, fresh 2026-10-10 lineage).
 
+### Phase-H scaffolding round (2026-10-11, while W1 waits on fairshare queue)
+- W1 (78651 transe + 78652 complex) still PENDING: account fairshare
+  decayed after the heavy week; scheduler projected start 2026-10-12
+  17:28 with opportunistic backfill on short-job gaps. Cluster shows
+  240 idle CPUs but GPU nodes busy (gpu01 6/8; gpu02 4/4).
+- The user chose to build Phase H meanwhile:
+  - train_pamr.py: paired/probe dataset-build TIMING instrumented
+    (Per split wall in build, surfaced in
+    pamr_training_metrics.json as dataset_build_timings_s) — protocol
+    neutral, lands with Phase D runs.
+  - aggregate_campaign.py: June-format faithful fresh aggregation
+    (grouped result.csv + count weights + average_macro math verbatim);
+    extractors are split-aware (test|val) for the evaluate.py AND
+    train_pamr metric schemas; June PAR row source = pathlen_last
+    metrics (evaluate-schema). `june-selftest` mode is INFORMATIONAL —
+    June result/average CSVs are UNTRUSTED (registered H1/H3 swap +
+    different split/source branches); the selftest validated the
+    schema on the restored June artifacts (78668/78669 rc=0, rows=5).
+    Fresh weights = test queries (87/85/33/34 = 239, the full test set
+    is artist-relations only by the train_eval filter).
+  - phase_h_timings.py: PAMR-family timing extractor (train/test
+    walls, GPU peaks, dataset-build timings) — dry-validated on the
+    June metrics (78670 rc=0, 7 rows).
+- Also this round: FIT ~/AGENTS.md network row corrected (NetGate
+  78622 evidence, backup AGENTS.md.pre-netgate.bak); wip.md §20 added.
+- Aggregation protocol implications REGISTERED: fresh tables = TEST
+  split (paper default) with test-matched weights + a VAL sheet for
+  reference; June 74/76/26/26 = VAL query counts (202) explained.
+
 ### NEXT ACTIONS (in order)
 1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
    + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
