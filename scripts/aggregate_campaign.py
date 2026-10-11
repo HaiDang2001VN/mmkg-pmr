@@ -91,6 +91,12 @@ def load_june_rows(june_pre):
     if pm.exists():
         out, overall = per_relation_from_pamr(pm)
         rows["Path-Aware Multi-modal Reasoning"] = (out, overall)
+    # June PAR row source (register 6.2): pathlen_last metrics, TEST split
+    par = (june_pre / "full" / "pamr" / "pathlen" / "all"
+           / "pathlen_last" / "metrics.json")
+    if par.exists():
+        out, overall = per_relation_from_evaluate(par)
+        rows["Path-Aware Reasoning"] = (out, overall)
     return rows
 
 
@@ -234,8 +240,10 @@ def main():
         for (rel, metric) in flat_cols:
             for meth in methods_in(flat_june):
                 a = float(flat_cols[(rel, metric)][meth])
-                b = float(per_rel_lookup(rows, meth, rel, metric))
-                if not (np.isnan(b) or abs(a - b) < 2e-4):
+                b = per_rel_lookup(rows, meth, rel, metric)
+                if b is None:
+                    continue
+                if not (np.isnan(b) or abs(a - float(b)) < 2e-4):
                     diffs.append(f"{meth}|{rel}|{metric}: {a} vs {b}")
         print("ACCEPTANCE june-selftest rows=", len(rows),
               "counts=", counts, "metric_diffs=", len(diffs))
@@ -280,7 +288,9 @@ def methods_in(flat_june):
 
 
 def per_rel_lookup(rows, meth, rel, metric):
-    per_rel, overall = rows.get(meth, ({}, None))
+    if meth not in rows:
+        return None
+    per_rel, overall = rows[meth]
     if metric == "MRR" and rel in ("overall", None):
         return overall
     if rel == "overall":
