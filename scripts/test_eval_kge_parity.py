@@ -244,7 +244,7 @@ def part1(config_path, n_val, n_train, seed, device, models):
         feat_args, entity_to_id, relation_to_id,
         num_relations=dl.get_num_relations())
 
-    for model_name in args.models:
+    for model_name in models:
         utils.set_seed(seed)
         model, _, _ = helpers.get_model(
             model_name=model_name, num_entities=len(entity_to_id),
