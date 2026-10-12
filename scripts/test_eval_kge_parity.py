@@ -92,6 +92,9 @@ class _CachedStub(_StubModel):
     def encode_entities(self, entity_ids):
         return entity_ids.float()
 
+    def get_relation_representations(self, relation_ids):
+        return relation_ids.float()
+
     def score_from_repr(self, head_repr, head_imag, rel_repr, rel_imag,
                         tail_repr, tail_imag):
         rel = rel_repr.reshape(-1)[0]
