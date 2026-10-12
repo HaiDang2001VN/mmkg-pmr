@@ -144,3 +144,22 @@ class TransE(VLKGEBase):
         score = self.raw_margin - torch.norm(head_emb + relation_emb - tail_emb, p=self.p_norm, dim=-1)
         
         return score
+
+    def encode_entities(self, entity_ids):
+        """Cached-eval API: fused entity representations, L2-normalized
+        exactly as forward() normalizes them (same op, same tensor, so the
+        values match bit-for-bit)."""
+        emb = self.get_entity_representations(entity_ids)
+        return F.normalize(emb, p=2, dim=-1)
+
+    def score_from_repr(self, head_repr, head_imag, rel_repr, rel_imag,
+                        tail_repr, tail_imag):
+        """Cached-eval API: TransE scoring from precomputed representations.
+        Math identical to forward(): margin - ||h + r - t||_p.
+        Tender shapes: head_repr (B, dim); rel_repr (dim,) or (1, dim);
+        tail_repr (T, dim) -> scores (B, T)."""
+        return self.raw_margin - torch.norm(
+            head_repr.unsqueeze(1)
+            + rel_repr.reshape(1, 1, -1)
+            - tail_repr.unsqueeze(0),
+            p=self.p_norm, dim=-1)

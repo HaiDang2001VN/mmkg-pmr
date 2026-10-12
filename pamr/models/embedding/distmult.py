@@ -128,3 +128,19 @@ class DistMult(VLKGEBase):
         score = torch.sum(head_emb * relation_emb * tail_emb, dim=-1)
         
         return score
+
+    def encode_entities(self, entity_ids):
+        """Cached-eval API: fused entity representations (no normalization
+        in DistMult scoring — repr stored as-is)."""
+        return self.get_entity_representations(entity_ids)
+
+    def score_from_repr(self, head_repr, head_imag, rel_repr, rel_imag,
+                        tail_repr, tail_imag):
+        """Cached-eval API: score = <h, r, t> over the feature dim.
+        head_repr (B, dim); rel_repr (dim,); tail_repr (T, dim)
+        -> (B, T)."""
+        return torch.sum(
+            head_repr.unsqueeze(1)
+            * rel_repr.reshape(1, 1, -1)
+            * tail_repr.unsqueeze(0),
+            dim=-1)

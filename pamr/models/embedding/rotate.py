@@ -210,3 +210,29 @@ class RotatE(VLKGEBase):
         score = self.raw_margin - torch.linalg.vector_norm(complex_score, dim=(1, 2))
         
         return score
+
+    def encode_entities(self, entity_ids):
+        """Cached-eval API: (real, imag) fused representations with the
+        IDENTICAL pipeline as forward()."""
+        real = self.get_entity_representations(entity_ids)
+        if self.inductive:
+            imag = self.get_imaginary_embedding_wikiart(entity_ids, real)
+        else:
+            imag = self.get_imaginary_embedding_wn9img(entity_ids)
+        return real, imag
+
+    def score_from_repr(self, head_real, head_imag, rel_real, rel_imag,
+                        tail_real, tail_imag):
+        """Cached-eval API: RotatE from precomputed representations.
+        head_* (B, dim); rel_real = RAW relation angle vector (dim,);
+        rel_imag unused (angles derived here); tail_* (T, dim) -> (B, T).
+        The stack+vector_norm over dims (1,2) equals
+        sqrt(sum_dim (re^2 + im^2))."""
+        hr, hi = head_real.unsqueeze(1), head_imag.unsqueeze(1)
+        angles = rel_real.reshape(1, 1, -1)
+        rel_re = torch.cos(angles)
+        rel_im = torch.sin(angles)
+        re_score = (rel_re * hr - rel_im * hi) - tail_real.unsqueeze(0)
+        im_score = (rel_re * hi + rel_im * hr) - tail_imag.unsqueeze(0)
+        return self.raw_margin - torch.sqrt(
+            (re_score * re_score + im_score * im_score).sum(dim=-1))

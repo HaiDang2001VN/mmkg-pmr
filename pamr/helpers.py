@@ -504,6 +504,13 @@ def _evaluate_kge_pooled(model, dataloader, filter_map, ks,
     rows_budget = 131_072
     triple_cap = 256
     cand_chunk = 8192
+    # Cached-eval API (encode_entities/score_from_repr on the model):
+    # candidate-pool representations are encoded ONCE per relation and
+    # every triple-chunk scores against the cached slices — math
+    # identical to model(...) by construction, parity-gated in
+    # scripts/test_eval_kge_parity.py. Falls back to the chunked
+    # forward path for models without the API.
+    use_cached = hasattr(model, "score_from_repr")
 
     heads_l, rels_l, tails_l = [], [], []
     with torch.no_grad():
@@ -546,6 +553,30 @@ def _evaluate_kge_pooled(model, dataloader, filter_map, ks,
             chunk = max(1, min(triple_cap, scores_budget // m,
                                rows_budget // cand_chunk))
 
+            rel_part1 = rel_part2 = pool_repr1 = pool_repr2 = None
+            if use_cached:
+                # Encode the relation's candidate pool ONCE; per-model
+                # relation parts match each forward's own lookups.
+                name = type(model).__name__
+                enc = model.encode_entities(pool_dev)
+                if isinstance(enc, tuple):
+                    pool_repr1, pool_repr2 = enc
+                else:
+                    pool_repr1, pool_repr2 = enc, None
+                if name == "RotatE":
+                    rel_part1 = model.get_relation_representations(
+                        torch.tensor([r], device=device)).squeeze(0)
+                    # raw angles; cos/sin happen inside score_from_repr
+                elif name == "ComplEx":
+                    rel_part1 = model.get_relation_representations(
+                        torch.tensor([r], device=device)).squeeze(0)
+                    rel_part2 = model.relation_embeddings_imag(
+                        torch.tensor([r], device=device)).squeeze(0)
+                else:
+                    # TransE / DistMult / struct variants
+                    rel_part1 = model.get_relation_representations(
+                        torch.tensor([r], device=device)).squeeze(0)
+
             for t0 in range(0, rows.numel(), chunk):
                 idx = rows[t0:t0 + chunk]
                 h_cpu = heads_all[idx]
@@ -585,13 +616,29 @@ def _evaluate_kge_pooled(model, dataloader, filter_map, ks,
 
                 h_dev = h_cpu.to(device)
                 scores = torch.empty(b, m, device=device)
-                for c0 in range(0, m, cand_chunk):
-                    c1 = min(c0 + cand_chunk, m)
-                    w = c1 - c0
-                    hf = h_dev.unsqueeze(1).expand(b, w).reshape(-1)
-                    rf = rel_col.unsqueeze(1).expand(b, w).reshape(-1)
-                    tf = pool_dev[c0:c1].unsqueeze(0).expand(b, w).reshape(-1)
-                    scores[:, c0:c1] = model(hf, rf, tf).view(b, w)
+                if use_cached:
+                    # Head representations for this triple-chunk (B, dim).
+                    h_enc = model.encode_entities(h_dev)
+                    if not isinstance(h_enc, tuple):
+                        h_enc = (h_enc, None)
+                    h1, h2 = h_enc
+                    for c0 in range(0, m, cand_chunk):
+                        c1 = min(c0 + cand_chunk, m)
+                        w = c1 - c0
+                        scores[:, c0:c1] = model.score_from_repr(
+                            h1, h2, rel_part1, rel_part2,
+                            pool_repr1[c0:c1], pool_repr2[c0:c1]
+                            if pool_repr2 is not None else None)
+                else:
+                    for c0 in range(0, m, cand_chunk):
+                        c1 = min(c0 + cand_chunk, m)
+                        w = c1 - c0
+                        hf = h_dev.unsqueeze(1).expand(b, w).reshape(-1)
+                        rf = rel_col.unsqueeze(1).expand(
+                            b, w).reshape(-1)
+                        tf = pool_dev[c0:c1].unsqueeze(0).expand(
+                            b, w).reshape(-1)
+                        scores[:, c0:c1] = model(hf, rf, tf).view(b, w)
                 scores = scores.masked_fill(mask.to(device), float("-inf"))
 
                 order = torch.argsort(scores, dim=1, descending=True,

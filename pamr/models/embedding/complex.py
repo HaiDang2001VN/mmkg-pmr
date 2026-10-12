@@ -213,3 +213,25 @@ class ComplEx(VLKGEBase):
                 triple_dot(head_imag, relation_imag, tail_real))
         
         return score
+
+    def encode_entities(self, entity_ids):
+        """Cached-eval API: (real, imag) fused representations, built with
+        the IDENTICAL pipeline as forward()."""
+        real = self.get_entity_representations(entity_ids)
+        if self.inductive:
+            imag = self.get_imaginary_embedding_wikiart(entity_ids, real)
+        else:
+            imag = self.get_imaginary_embedding_wn9img(entity_ids)
+        return real, imag
+
+    def score_from_repr(self, head_real, head_imag, rel_real, rel_imag,
+                        tail_real, tail_imag):
+        """Cached-eval API: Re(<h, r, t*>) from precomputed representations.
+        head_* (B, dim); rel_* (dim,); tail_* (T, dim) -> (B, T)."""
+        hr, hi = head_real.unsqueeze(1), head_imag.unsqueeze(1)
+        rr, ri = rel_real.reshape(1, 1, -1), rel_imag.reshape(1, 1, -1)
+        tr, ti = tail_real.unsqueeze(0), tail_imag.unsqueeze(0)
+        return (torch.sum(hr * rr * tr, dim=-1)
+                + torch.sum(hi * rr * ti, dim=-1)
+                + torch.sum(hr * ri * ti, dim=-1)
+                - torch.sum(hi * ri * tr, dim=-1))

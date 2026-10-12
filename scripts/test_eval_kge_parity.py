@@ -84,6 +84,21 @@ class _StubModel:
         return scores
 
 
+class _CachedStub(_StubModel):
+    """Adds the cached-eval API mirroring the stub's
+    score = -(3h + 7r + t): representations ARE the integer ids (float),
+    the relation repr is the scalar r."""
+
+    def encode_entities(self, entity_ids):
+        return entity_ids.float()
+
+    def score_from_repr(self, head_repr, head_imag, rel_repr, rel_imag,
+                        tail_repr, tail_imag):
+        rel = rel_repr.reshape(-1)[0]
+        return -(3.0 * head_repr.unsqueeze(1) + 7.0 * rel
+                 + tail_repr.unsqueeze(0))
+
+
 def part0():
     print("── Part 0: synthetic — stub scorer, truth mask + empty pool ──")
     stub = _StubModel()
@@ -140,13 +155,26 @@ def part0():
     if poo[2][1]["MRR"] != 1.0:
         ok = False
         print(f"  MISMATCH part0 empty-pool branch: {poo[2][1]['MRR']!r}")
+
+    # Cached-eval dispatch: the same universe through the score_from_repr
+    # API must reproduce the reference loop exactly (part0b).
+    stub_c = _CachedStub()
+    ref_c = helpers._evaluate_kge_per_triple(
+        stub_c, batches, filter_map, ks=ks, bidirectional=False,
+        relation_to_valid_tails=pools, device=device)
+    poo_c = helpers._evaluate_kge_pooled(
+        stub_c, batches, filter_map, ks=ks,
+        relation_to_valid_tails=pools, device=device)
+    ok_c = _agg_equal(ref_c, poo_c, "part0b/cached-dispatch")
+    # dispatch check: refused without API, engaged with API
+    print("ACCEPTANCE parity[part0b] " + ("OK" if ok_c else "FAIL"))
     print("ACCEPTANCE parity[part0] " + ("OK" if ok else "FAIL"))
-    return ok
+    return ok and ok_c
 
 
 # ───────────────────────── Part 1: real data slice ────────────────────────
 
-def part1(config_path, n_val, n_train, seed, device):
+def part1(config_path, n_val, n_train, seed, device, models):
     print(f"── Part 1: real data — config={config_path} "
           f"n_val={n_val} n_train={n_train} ──")
     from torch.utils.data import DataLoader
@@ -177,47 +205,9 @@ def part1(config_path, n_val, n_train, seed, device):
     print(f"  triples: train={len(train_data):,} val={len(val_data):,} "
           f"(filter_map built)", flush=True)
 
-    feat_args = SimpleNamespace(
-        use_visual=cfg.get("use_visual", True),
-        use_textual=cfg.get("use_textual", True),
-        use_relation_features=False,
-        visual_features_path=cfg.get("visual_features_path"),
-        textual_features_path=cfg.get("textual_features_path"),
-        relation_features_path=None,
-        normalize_visual=False, normalize_textual=False,
-        normalize_relation=False)
-    (visual_features, textual_features, relation_features,
-     vis_idx, txt_idx) = utils.load_features(
-        feat_args, entity_to_id, relation_to_id,
-        num_relations=dl.get_num_relations())
-
-    utils.set_seed(seed)
-    model, _, _ = helpers.get_model(
-        model_name=cfg["model"], num_entities=len(entity_to_id),
-        num_relations=dl.get_num_relations(),
-        visual_features=visual_features, textual_features=textual_features,
-        relation_features=relation_features,
-        visual_entity_to_index=vis_idx, textual_entity_to_index=txt_idx,
-        embedding_dim=cfg.get("embedding_dim", 768),
-        fusion_mode=cfg.get("fusion_mode", "average"),
-        use_structural=True, use_visual=cfg.get("use_visual", True),
-        use_textual=cfg.get("use_textual", True),
-        freeze_visual=True, freeze_textual=True,
-        inductive=cfg.get("inductive", True),
-        modality_asymmetry=cfg.get("modality_asymmetry", True),
-        p_norm=cfg.get("p_norm", 1),
-        normalize_relations=cfg.get("normalize_relations", True),
-        margin=cfg.get("margin", 12.0), lr=cfg.get("lr", 0.1),
-        use_scheduler=False, device=device)
-    if hasattr(model, "mark_seen_entities"):
-        seen = sorted(set(train_data['head'].map(entity_to_id).dropna().astype(int))
-                      .union(set(train_data['tail'].map(entity_to_id)
-                                           .dropna().astype(int))))
-        model.mark_seen_entities(torch.tensor(seen, dtype=torch.long))
-    print("  model ready (untrained, seeded — deterministic)", flush=True)
-
     ks = [1, 3, 10]
     all_ok = True
+    slice_spec = []
     for label, frame, pools, n in (
         ("val", val_data, pools_val, n_val),
         ("sampled_train", train_data, pools_train, n_train),
@@ -235,28 +225,74 @@ def part1(config_path, n_val, n_train, seed, device):
              artist_rows], ignore_index=True)
         print(f"  {label} slice: {len(slice_df)} rows "
               f"({len(artist_rows)} artist-rel forced)")
-        ds = KGDataset(slice_df, entity_to_id, relation_to_id)
-        loader = DataLoader(ds, batch_size=64, shuffle=False)
+        slice_spec.append((label, slice_df, pools))
 
-        t0 = time.perf_counter()
-        ref = helpers._evaluate_kge_per_triple(
-            model, loader, filter_map, ks=ks, bidirectional=False,
-            relation_to_valid_tails=pools, device=device)
-        wall_ref = time.perf_counter() - t0
+    feat_args = SimpleNamespace(
+        use_visual=cfg.get("use_visual", True),
+        use_textual=cfg.get("use_textual", True),
+        use_relation_features=False,
+        visual_features_path=cfg.get("visual_features_path"),
+        textual_features_path=cfg.get("textual_features_path"),
+        relation_features_path=None,
+        normalize_visual=False, normalize_textual=False,
+        normalize_relation=False)
+    (visual_features, textual_features, relation_features,
+     vis_idx, txt_idx) = utils.load_features(
+        feat_args, entity_to_id, relation_to_id,
+        num_relations=dl.get_num_relations())
 
-        loader2 = DataLoader(KGDataset(slice_df, entity_to_id, relation_to_id),
-                             batch_size=64, shuffle=False)
-        t0 = time.perf_counter()
-        poo = helpers._evaluate_kge_pooled(
-            model, loader2, filter_map, ks=ks,
-            relation_to_valid_tails=pools, device=device)
-        wall_poo = time.perf_counter() - t0
-
-        ok = _agg_equal(ref, poo, f"part1/{label}")
-        n_rel = len(ref[2])
-        print(f"  {label}: ref {wall_ref:.1f}s vs pooled {wall_poo:.1f}s "
-              f"({n_rel} relations)")
-        all_ok = all_ok and ok
+    for model_name in args.models:
+        utils.set_seed(seed)
+        model, _, _ = helpers.get_model(
+            model_name=model_name, num_entities=len(entity_to_id),
+            num_relations=dl.get_num_relations(),
+            visual_features=visual_features,
+            textual_features=textual_features,
+            relation_features=relation_features,
+            visual_entity_to_index=vis_idx,
+            textual_entity_to_index=txt_idx,
+            embedding_dim=cfg.get("embedding_dim", 768),
+            fusion_mode=cfg.get("fusion_mode", "average"),
+            use_structural=True, use_visual=cfg.get("use_visual", True),
+            use_textual=cfg.get("use_textual", True),
+            freeze_visual=True, freeze_textual=True,
+            inductive=cfg.get("inductive", True),
+            modality_asymmetry=cfg.get("modality_asymmetry", True),
+            p_norm=cfg.get("p_norm", 1),
+            normalize_relations=cfg.get("normalize_relations", True),
+            margin=cfg.get("margin", 12.0), lr=cfg.get("lr", 0.1),
+            use_scheduler=False, device=device)
+        if hasattr(model, "mark_seen_entities"):
+            seen = sorted(set(train_data['head'].map(entity_to_id)
+                              .dropna().astype(int))
+                          .union(set(train_data['tail'].map(entity_to_id)
+                                               .dropna().astype(int))))
+            model.mark_seen_entities(torch.tensor(seen, dtype=torch.long))
+        has_api = hasattr(model, "score_from_repr")
+        print(f"  model={model_name} cached_api={has_api}", flush=True)
+        for label, slice_df, pools in slice_spec:
+            ref_frames = []
+            loader0 = DataLoader(KGDataset(slice_df, entity_to_id,
+                                           relation_to_id),
+                                 batch_size=64, shuffle=False)
+            t0 = time.perf_counter()
+            ref = helpers._evaluate_kge_per_triple(
+                model, loader0, filter_map, ks=ks, bidirectional=False,
+                relation_to_valid_tails=pools, device=device)
+            wall_ref = time.perf_counter() - t0
+            loader1 = DataLoader(KGDataset(slice_df, entity_to_id,
+                                           relation_to_id),
+                                 batch_size=64, shuffle=False)
+            t0 = time.perf_counter()
+            poo = helpers._evaluate_kge_pooled(
+                model, loader1, filter_map, ks=ks,
+                relation_to_valid_tails=pools, device=device)
+            wall_poo = time.perf_counter() - t0
+            ok = _agg_equal(ref, poo, f"part1/{model_name}/{label}")
+            print(f"  {model_name}/{label}: ref {wall_ref:.1f}s vs "
+                  f"pooled {wall_poo:.1f}s "
+                  f"({len(ref[2])} relations)")
+            all_ok = all_ok and ok
     return all_ok
 
 
@@ -270,6 +306,8 @@ def main():
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     ap.add_argument("--skip-synthetic", action="store_true")
     ap.add_argument("--skip-real", action="store_true")
+    ap.add_argument("--models", nargs="+",
+                    default=["TransE", "DistMult", "ComplEx", "RotatE"])
     args = ap.parse_args()
 
     device = torch.device(args.device)
@@ -278,7 +316,7 @@ def main():
         ok = part0() and ok
     if not args.skip_real:
         ok = part1(args.config, args.n_val, args.n_train, args.seed,
-                   device) and ok
+                   device, args.models) and ok
     print("\nACCEPTANCE parity ALL " + ("OK" if ok else "FAIL"))
     sys.exit(0 if ok else 1)
 
