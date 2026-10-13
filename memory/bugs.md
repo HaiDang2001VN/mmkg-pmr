@@ -705,3 +705,33 @@ execute in the fresh chain; listed here for completeness).
   parser's argparse dests; conditional `--resume_from` append (stage
   file present) + `--no-compile` (preprocess.skip-compile switch)
   verified real. No invalid flags anywhere.
+
+### AUD-2/3/4 milestones (helpers/scorers, train_embedding+dataloader, train_pamr+pamr.py+ranking)
+- **TIER-1 CLEAN**: my session's scorer/eval/API edits re-diffed line by
+  line vs the compaction baseline — ComplEx/DistMult/RotatE/TransE
+  score_from_repr broadcast shapes + broadcast relation-part handling
+  consistent with each forward (RotatE stack layout bit-matches incl.
+  reduction order; raw-angles contract honored); helpers.resume
+  epoch+1 semantics correct; keep-mask alignment + hub-skip unchanged
+  and re-verified; cached dispatch + cached-per-relation pool encoding
+  consistent (1D flatten contract honored).
+- **TIER-2 CLEAN**: train_embedding loaders (train bs=config 2048,
+  eval_batch_size loaders, sampled-train exclusions), scope pools
+  sorted, KGDataset NaN guard + int64 tensors; dataloader sorted
+  per-split pools + sorted all-pools; inverse materialization dedup
+  contract.
+- **TIER-3: ONE FINDING (F-9)**: pamr/ranking.py:244-248 per-relation
+  lf accumulators append the STALE rank_lf from an earlier query when
+  the lf 'exclude' branch skips a query (no-path-only positives) —
+  inflated per-relation MRR_lf/Hits_lf; GLOBAL lf entries unaffected;
+  the fresh aggregation consumes strict MRR/Hits only -> no campaign
+  metric impact; fix = per-query lf-appended gate (deferred to the
+  approved fix round).
+- pamr.py forward/_build_tokens/token-shape math (2N+1, +1 node-type
+  offset) re-verified; no-path residual assembly = constant within a
+  candidate group (rank-invariant; June-consistent) — informational
+  documentation note, no change; zero-init residuals per register.
+- seen_in_train buffer sized num_entities (full-range indexing safe
+  under the cached-eval pool encode path).
+- compute_loss branch-local imports each precede their uses (the earlier
+  scanner hit resolved as a false positive; runtime safe).
