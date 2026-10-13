@@ -144,6 +144,7 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
 
     i = 0
     while i < len(q):
+        lf_recorded = False
         qid = q[i]
         # Find end of this query block
         j = i + 1
@@ -230,6 +231,7 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
                     correct_lf += 1
                 if rank_lfns == 1:
                     correct_lfns += 1
+                lf_recorded = True
 
         # Per-relation tracking
         if rel_name:
@@ -241,7 +243,11 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
                 per_rel_correct[rel_name] += 1
             if rank_ns == 1:
                 per_rel_correct_ns[rel_name] += 1
-            if h is not None:
+            # F-9 gate: append per-relation lf entries ONLY when THIS
+            # query produced lf ranks — the exclude branch may skip a
+            # query whose positives are all no-path; without the gate a
+            # stale rank_lf from the previous iteration leaks here.
+            if h is not None and lf_recorded:
                 per_rel_ranks_lf[rel_name].append(rank_lf)
                 per_rel_mrrs_lf[rel_name].append(1.0 / rank_lf)
                 per_rel_ranks_lfns[rel_name].append(rank_lfns)

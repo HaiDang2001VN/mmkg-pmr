@@ -264,7 +264,6 @@ def main():
     n_model_ents = model.entity_embeddings.weight.shape[0]
     if n_data_ents > n_ckpt_ents and ckpt_ent_w is not None:
         missing = n_data_ents - n_ckpt_ents
-        missing = n_data_ents - n_ckpt_ents
         d_ent = model.entity_embeddings.weight.shape[1]
         dev = model.entity_embeddings.weight.device
         ckpt_ent = ckpt_ent_w.to(dev)
