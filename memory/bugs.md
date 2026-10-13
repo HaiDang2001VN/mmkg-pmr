@@ -195,6 +195,25 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   split (paper default) with test-matched weights + a VAL sheet for
   reference; June 74/76/26/26 = VAL query counts (202) explained.
 
+### Cached-eval gate round (2026-10-12/13)
+- **ALL FOUR scorer families parity-EXACT under the cached evaluator**
+  (gate 78779 transe 15x / distmult 16-18x / complex 9.6x; solo gate
+  78896 rotate 8.6-9.6x after the fix below). Artist-rel rows forced
+  into every slice; per-relation metrics exact vs the per-triple
+  reference loop.
+- **RotatE ULP defect (78896 fix)**: my sqrt(sum(re2)+sum(im2))
+  reordered the reduction vs forward's stack+vector_norm((1,2)) —
+  last-bit score noise flipped rank TIES (MRR diffs ~1e-8). Fix =
+  replicate the exact stack layout ((b,w,f,2), norm dims (2,3)) —
+  sum order now bit-matches the forward for every backend shape.
+- Running transe/complex (78651/78652) hit the 12h wall with clean
+  USR1 stage-syncs (stage_transe 2.75 GB ~epoch 7 Val MRR 0.2471;
+  stage_complex 2.8 GB ~epoch 2, loss 0.021) — resumes requeued as
+  78885/78886 WITH the cached code (remaining epochs run the fast
+  path; earlier epochs' results stay valid).
+- Queue state: 78885/78886 (+ the other agent's jobs) pending on
+  fairshare priority; backfill continues to be the start mechanism.
+
 ### NEXT ACTIONS (in order)
 1. **78321 parity GATE PASSED** (`reports/parity_78321.out`): Part 0 OK
    + Part 1 real slices OK (val 23 rels, sampled-train 16 rels,
