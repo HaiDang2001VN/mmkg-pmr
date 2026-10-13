@@ -678,3 +678,30 @@ never trust stale offsets).
   chain; not runtime deps by design).
 - Camera-ready repo fate (wip.md §3); paperv5/paperv6/paperv7 paper
   rounds (wip.md §17).
+---
+
+## 9. Static audit annex (2026-10-13, no-execution line audit — §per instructions)
+
+Scope: every campaign-critical code line read for logic/contract/shape
+hazards; findings drive a FIX ROUND only after audit completion. Tooling
+parse-only (no pipeline execution). Coverage = 26 core files (full
+campaign surface); legacy modules (notebook.py, evaluate_relatedto/
+zero_shot/linear_probe.py, June pathlen chains) classified OUT (never
+execute in the fresh chain; listed here for completeness).
+
+### AUD-1 mechanical pass — CLEAN
+- parse gates: 26/26 files compile/AST-clean.
+- AST lints (bare-except:pass swallows, unreachable-after-flow statements,
+  inline-import shadows incl. try-guarded fallbacks): ZERO hits.
+- config-key matrix: every chain config key maps to its consumer
+  (train_pamr get/list, train_embedding argparse dests, prepare/score/
+  evaluate/verify via chain refs). Scanner false-positives resolved:
+  nested YAML subkeys (inverse_relation_pairs/artist pairs,
+  negatives_per_query; train/val/test entries; model_config refs) and
+  the paths-config keys (64 preprocess.py accessors — all consumed).
+  `pamr_score.yaml` = consumed by models/pr/score.py (a June-era
+  alternate scorer, out-of-chain scope — classifier note).
+- sbatch↔flags matrix: every invocation validated against the target
+  parser's argparse dests; conditional `--resume_from` append (stage
+  file present) + `--no-compile` (preprocess.skip-compile switch)
+  verified real. No invalid flags anywhere.
