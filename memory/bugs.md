@@ -765,3 +765,12 @@ execute in the fresh chain; listed here for completeness).
   program execution; no further actions block the standing chain. Next
   step per user policy: fix round (F-9 + cosmetics), then the GPU
   cached-eval gate, then releases.
+### Fix round (2026-10-13, aba04ab) + GPU gate submitted
+- F-9 FIXED: per-query `lf_recorded` gate in ranking.py (per-relation
+  lf entries only for queries that actually produced lf ranks).
+- F-11 FIXED: duplicate line removed in score.py.
+- Regression gate 78922 (equiv harness): ALL OK — no regressions.
+- cached_eval_gpu.sbatch authored + queued (78923): the CUDA-flavored
+  parity gate (all 4 families, artist-rows-forced slices) before any
+  GPU release of cached runs. Resumes 78920/78921 still queued
+  (fairshare); start-gate watch armed.
