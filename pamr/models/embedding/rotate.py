@@ -226,13 +226,16 @@ class RotatE(VLKGEBase):
         """Cached-eval API: RotatE from precomputed representations.
         head_* (B, dim); rel_real = RAW relation angle vector (dim,);
         rel_imag unused (angles derived here); tail_* (T, dim) -> (B, T).
-        The stack+vector_norm over dims (1,2) equals
-        sqrt(sum_dim (re^2 + im^2))."""
+        The stack+vector_norm replicates forward()'s reduction LAYOUT
+        exactly ((f, 2) contiguous pairs, norm over the feature and pair
+        axes as dims (2,3) here vs (1,2) there) — reordering the
+        reduction changes last-bit results and flips rank ties."""
         hr, hi = head_real.unsqueeze(1), head_imag.unsqueeze(1)
         angles = rel_real.reshape(1, 1, -1)
         rel_re = torch.cos(angles)
         rel_im = torch.sin(angles)
         re_score = (rel_re * hr - rel_im * hi) - tail_real.unsqueeze(0)
         im_score = (rel_re * hi + rel_im * hr) - tail_imag.unsqueeze(0)
-        return self.raw_margin - torch.sqrt(
-            (re_score * re_score + im_score * im_score).sum(dim=-1))
+        complex_score = torch.stack([re_score, im_score], dim=3)
+        return self.raw_margin - torch.linalg.vector_norm(
+            complex_score, dim=(2, 3))
