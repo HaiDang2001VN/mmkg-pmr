@@ -1214,7 +1214,10 @@ def train(model, train_loader, val_loader, test_loader, sampled_train_loader,
                 early_stop_counter = 0
                 
                 if save_path:
-                    import pamr.utils as utils
+                    # (module-level `from pamr import utils` supplying the
+                    # checkpoint API — the inline re-import used to shadow
+                    # `utils` as a function-local and broke the resume
+                    # branch's utils.load_checkpoint with UnboundLocalError)
                     # Save complete checkpoint with training state
                     additional_info = {
                         'best_val_mrr': best_val_mrr,
