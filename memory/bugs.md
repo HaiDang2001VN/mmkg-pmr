@@ -735,3 +735,33 @@ execute in the fresh chain; listed here for completeness).
   under the cached-eval pool encode path).
 - compute_loss branch-local imports each precede their uses (the earlier
   scanner hit resolved as a false positive; runtime safe).
+### AUD-5/6/7 milestones (consumer chain, sbatch + scripts, protocol invariants) — AUDIT COMPLETE
+- **TIER-4 CLEAN**: score.py ckpt-contract regions (padding branches are
+  no-ops for the fresh full-size checkpoints; duplicate `missing =`
+  line = cosmetic only; seen-marking after padding; split-loop SKIP
+  semantics; per-split scores/metrics writers). evaluate.py metrics
+  schemas match the aggregator. prepare.py + preprocess.py classified
+  PROVEN-GREEN (three independent all-green runs: pandas-2 lineage,
+  pandas-3 revalidation, post-restore regen 78592 with verify A/B
+  PASS) — line-audit demoted to spot re-reads (no findings).
+- **TIER-5 CLEAN**: 8 sbatch + 6 scripts/* — flag matrices verified in
+  AUD-1; gate scripts' ACCEPTANCE structures consistent; output-own
+  dirs + clone-before-run contracts intact in phase_d/phase_e.
+- **AUD-7 invariants re-derived from code**: own-edge masking both
+  orientations (verify A/B runtime-passed on the fresh lineage);
+  candidate universe `pool − truths + {t}` identical in both evaluator
+  paths; hub-drop whole-triple drop + keep-mask pairing for num_neg>1;
+  RNG = shared generator (distribution-faithful, documented;
+  bit-stream change accepted with the restructure); bs 2048 = user
+  protocol change (June was 512/1024; lr 0.1 unchanged — registered
+  caveat); verify A/B/C semantics unchanged.
+- **FINDINGS LEDGER**: F-9 = the only actionable defect (per-rel lf
+  leak; fix deferred to the approved fix round, zero campaign-metric
+  impact). Informational: no-path residual group-constant semantics
+  (rank-invariant, June-consistent; doc-only). Cosmetic: duplicated
+  line in score.py padding block. Classifier notes: pamr_score.yaml +
+  pathlen chains (June-era alternate scorers, out-of-chain).
+- **AUDIT DISPOSITION**: campaign surface line-audited without any
+  program execution; no further actions block the standing chain. Next
+  step per user policy: fix round (F-9 + cosmetics), then the GPU
+  cached-eval gate, then releases.
