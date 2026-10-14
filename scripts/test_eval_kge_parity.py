@@ -30,7 +30,17 @@ from pamr.dataloader import DirectionalFilterMap, KGDataset  # noqa: E402
 
 
 def _agg_equal(ref, pooled, label, tol=1e-9, verbose=True):
-    """Assert aggregate-metric equality between the two evaluators."""
+    """Assert aggregate-metric equality between the two evaluators.
+
+    tol=0-class equality (default 1e-9) is the CPU acceptance contract:
+    CPU reductions are shape-stable so the two paths must agree to the
+    last bit up to documented summation-order differences. On CUDA,
+    kernel reduction order differs per shape -> score ties may flip by
+    last-bit noise and a single deep-tail rank flip shifts a relation's
+    MRR by ~1e-8 — the GPU contract is therefore tolerance-based
+    (metric-abs 1e-6) which still rejects any structural error (a
+    top-rank or relation-set break moves metrics by orders of
+    magnitude more)."""
     ok = True
     msgs = []
     for name, a, b in (
@@ -178,6 +188,7 @@ def part0():
 # ───────────────────────── Part 1: real data slice ────────────────────────
 
 def part1(config_path, n_val, n_train, seed, device, models):
+    metric_tol = 1e-6 if device.type == "cuda" else 1e-9
     print(f"── Part 1: real data — config={config_path} "
           f"n_val={n_val} n_train={n_train} ──")
     from torch.utils.data import DataLoader
@@ -291,7 +302,8 @@ def part1(config_path, n_val, n_train, seed, device, models):
                 model, loader1, filter_map, ks=ks,
                 relation_to_valid_tails=pools, device=device)
             wall_poo = time.perf_counter() - t0
-            ok = _agg_equal(ref, poo, f"part1/{model_name}/{label}")
+            ok = _agg_equal(ref, poo, f"part1/{model_name}/{label}",
+                            tol=metric_tol)
             print(f"  {model_name}/{label}: ref {wall_ref:.1f}s vs "
                   f"pooled {wall_poo:.1f}s "
                   f"({len(ref[2])} relations)")
