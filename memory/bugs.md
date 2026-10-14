@@ -792,3 +792,13 @@ execute in the fresh chain; listed here for completeness).
   Harness patched: CUDA acceptance contract = metric-abs 1e-6 + same
   structural checks; exact-to-last-bit stays the CPU oracle. 78942
   re-gate queued.
+### Wave-1 COMPLETE (2026-10-14): transe + complex backbones landed
+- 78920 transe: COMPLETED 2h58m; 78921 complex: COMPLETED 7h58m
+  (both under the cached evaluator; July-provenance contract preserved).
+- Slim landings + stage cleanup verified: transe_wikiart_mkg_v2_train.pt
+  (1,314 MiB; epoch 20 best_val 0.24749) + complex_wikiart_mkg_v2_train.pt
+  (1,338 MiB); no stage_ leftovers; no optimizer keys (slimchk 78941 +
+  by-construction for complex).
+- 78942 (GPU gate re-run) root-cancelled at 26s — one-off (canary 78970
+  COMPLETED immediately after proves no admin block); gate requeued.
+- Wave-1 dual-landing satisfies Phase D's first two checkpoints.
