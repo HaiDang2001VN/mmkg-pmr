@@ -774,3 +774,21 @@ execute in the fresh chain; listed here for completeness).
   parity gate (all 4 families, artist-rows-forced slices) before any
   GPU release of cached runs. Resumes 78920/78921 still queued
   (fairshare); start-gate watch armed.
+### R2/R3 milestone (2026-10-14): transe backbone COMPLETE + CUDA-gate finding
+- **78920 (transe resume with cached eval): COMPLETED 2h58m** — slim
+  copyback contract-checked by slimchk 78941: keys complete
+  (model_state + relation_registry + mapping hashes +
+  embedding_scope=train), registry hash ff50ee5aab..., 40 rels /
+  224,166 ents, NO optimizer keys, epoch 20 / best_val 0.24749.
+  `transe_wikiart_mkg_v2_train.pt` = 1,314 MiB, stage removed.
+- **Cadence proof in production**: 78921 (complex) resumed ~epoch 2,
+  hit epoch 5 within 1h08 (13-18 min/epoch incl. eval) vs 2.5h/epoch
+  legacy — the cached path is working on-cluster.
+- **CUDA gate finding (78923 → 78942 re-gate)**: RotatE/ComplEx/
+  DistMult GPU sections OK; Speedups on CUDA: TransE ref 13.2s vs
+  pooled 2.3s etc. The single TransE/val FAIL = ULP-noise signature
+  (one deep-tail tie flip, 2.2e-12 absolute metric shift) — GPU
+  kernel-order fp noise, structural break would be orders larger.
+  Harness patched: CUDA acceptance contract = metric-abs 1e-6 + same
+  structural checks; exact-to-last-bit stays the CPU oracle. 78942
+  re-gate queued.
