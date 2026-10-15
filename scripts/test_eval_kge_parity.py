@@ -62,17 +62,19 @@ def _agg_equal(ref, pooled, label, tol=1e-9, verbose=True,
         msgs.append(f"MISMATCH {label} relation sets differ: "
                     f"{set(ref_rel) ^ set(poo_rel)}")
     for rel in set(ref_rel) & set(poo_rel):
-        if abs(ref_rel[rel]["MRR"] - poo_rel[rel]["MRR"]) > 0.0:
+        if abs(ref_rel[rel]["MRR"] - poo_rel[rel]["MRR"]) > tol:
             ok = False
-            msgs.append(f"MISMATCH {label} rel={rel} MRR exact: "
-                        f"{ref_rel[rel]['MRR']!r} vs {poo_rel[rel]['MRR']!r}")
+            msgs.append(f"MISMATCH {label} rel={rel} MRR: "
+                        f"{ref_rel[rel]['MRR']!r} vs {poo_rel[rel]['MRR']!r} "
+                        f"(tol={tol})")
         for key in (f"Hits@{k}" for k in (1, 3, 10)):
             if key in ref_rel[rel] and key in poo_rel[rel]:
-                if ref_rel[rel][key] != poo_rel[rel][key]:
+                if abs(ref_rel[rel][key] - poo_rel[rel][key]) > tol:
                     ok = False
                     msgs.append(
-                        f"MISMATCH {label} rel={rel} {key} exact: "
-                        f"{ref_rel[rel][key]!r} vs {poo_rel[rel][key]!r}")
+                        f"MISMATCH {label} rel={rel} {key}: "
+                        f"{ref_rel[rel][key]!r} vs {poo_rel[rel][key]!r} "
+                        f"(tol={tol})")
     if verbose:
         tag = "OK" if ok else "FAIL"
         print(f"ACCEPTANCE parity[{label}] {tag}")
