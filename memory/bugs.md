@@ -802,3 +802,11 @@ execute in the fresh chain; listed here for completeness).
 - 78942 (GPU gate re-run) root-cancelled at 26s — one-off (canary 78970
   COMPLETED immediately after proves no admin block); gate requeued.
 - Wave-1 dual-landing satisfies Phase D's first two checkpoints.
+### CUDA gate PASSED + Wave-2 submitted (2026-10-16/17)
+- **79035 gpucache rc=0 (5m26s)**: all 4 scorer families accepted on
+  CUDA under the 1e-4 metric-abs contract (TransE/val's sole prior
+  failure = a deterministic fp-tie flip, Δ2.2e-12 abs — well inside the
+  band); CPU exactness oracle intact. The root-caused gate bug in the
+  harness itself (per-relation checks ignoring the tol) fixed first.
+- Wave-2 submitted per the locked 2x1 policy: **79113 distmult +
+  79114 rotate** (gpu01/02/04 constraint; struct follows in W3).
