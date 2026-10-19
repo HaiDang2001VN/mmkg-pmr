@@ -810,3 +810,9 @@ execute in the fresh chain; listed here for completeness).
   harness itself (per-relation checks ignoring the tol) fixed first.
 - Wave-2 submitted per the locked 2x1 policy: **79113 distmult +
   79114 rotate** (gpu01/02/04 constraint; struct follows in W3).
+### Wave-2/3 progress (2026-10-18/19)
+- 79113 distmult: COMPLETED 6h18m — distmult_wikiart_mkg_v2_train.pt
+  (1,314 MiB) landed; its ls shows the canonical naming.
+- 79114 rotate: RUNNING, epoch 12/20, loss 0.0717 (~cached pace:
+  ~15-18 min/epoch incl. eval; the stage ckpt exists as safety net).
+- W3 struct 79211 submitted (2x1 policy; rotate keeps slot 1).
