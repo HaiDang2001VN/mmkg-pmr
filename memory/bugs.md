@@ -816,3 +816,34 @@ execute in the fresh chain; listed here for completeness).
 - 79114 rotate: RUNNING, epoch 12/20, loss 0.0717 (~cached pace:
   ~15-18 min/epoch incl. eval; the stage ckpt exists as safety net).
 - W3 struct 79211 submitted (2x1 policy; rotate keeps slot 1).
+### Wave results analysis (2026-10-20, diagnosis; draft register note)
+Slim-header sweep (79280) + per-run val curves + FINAL TEST blocks:
+
+| backbone | best_val MRR | best epoch | FINAL TEST MRR | d_ent/d_rel |
+|---|---|---|---|---|
+| TransE (PAMR backbone) | 0.247489 | 20 | 0.2475 | 768/768 |
+| ComplEx (June paper's nb) | 0.311879 | **3** | 0.3125 | 768/768 |
+| DistMult | 0.306615 | 3 | 0.3076 | 768/768 |
+| struct TransE (PAR nb) | 0.098016 | 16 | 0.0984 | 768/768 |
+
+Reading:
+- All 4 registry-compatible (hash ff50ee5a... scope=train, 224,166
+  ents, slim shape contract 768/768) - the Phase D consumers accept.
+- ComplEx/DistMult peak at EPOCH 3 then decline ~1% (mild overfit;
+  bs 2048 + lr 0.1 converge fast). Best-checkpoint selection captured
+  the peak (the slim's contract stores best_val=best state). TransE
+  improves monotonically to epoch 20 (0.24749) - still climbing; the
+  June-provenance protocol (bs 512, 20 epochs) would land similar but
+  slower per epoch.
+- struct (multimodal-off) collapses to ~1/3 of the multimodal
+  backbones' val MRR => strong contrast: PAMR (multimodal nb) should
+  separate from PAR (struct nb) exactly as THE PAPER claims; fresh
+  numbers via the Phase D score/eval chains.
+- Numbering caveat: the FINAL TEST blocks in the logs evaluate with
+  all-entities candidate pools + inductive masking (a DIFFERENT
+  protocol from the deliverable's prepared candidate pools), so their
+  per-relation numbers are diagnostic-only and must NOT be quoted in
+  the paper; the paper-grade numbers come from Phase D's score chains
+  + evaluate.py + ranking (same as June's).
+- rotate 79276: still pending (will resume from its ~epoch-12/13
+  stage file; 5th and final backbone).
