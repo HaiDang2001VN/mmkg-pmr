@@ -847,3 +847,9 @@ Reading:
   + evaluate.py + ranking (same as June's).
 - rotate 79276: still pending (will resume from its ~epoch-12/13
   stage file; 5th and final backbone).
+### ALL 5 BACKBONES COMPLETE (2026-10-21)
+- rotate 79276: COMPLETED 9h24m (final Val MRR 0.2501; slim rc=0;
+  stage cleaned). Canonical set in vlkge/wikiart_mkg_v2/:
+  transe, complex, distmult, rotate (train ckpts) + transe_struct.
+- Phase D unblocked (gate satisfied 5/5). Chain: 4 score chains ->
+  PAMR prod -> clone+PAR -> evaluate x4 -> verify-C.
