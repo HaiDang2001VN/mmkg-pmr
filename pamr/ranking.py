@@ -326,7 +326,7 @@ def compute_rank_metrics(all_scores, all_labels, all_query_ids, top_k,
                 "Hits": {k: float(np.mean(r <= k)) for k in top_k},
                 "Hits_ns": {k: float(np.mean(r_ns <= k)) for k in top_k},
             }
-            if has_lf:
+            if has_lf and per_rel_ranks_lf[rel]:
                 r_lf = np.array(per_rel_ranks_lf[rel])
                 r_lfns = np.array(per_rel_ranks_lfns[rel])
                 entry["MRR_lf"] = float(np.mean(per_rel_mrrs_lf[rel]))
