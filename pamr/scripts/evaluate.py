@@ -32,6 +32,7 @@ from pamr import utils
 from pamr.ranking import compute_rank_metrics
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
+PKG_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 
 
@@ -69,7 +70,9 @@ def load_prepare_config(prepare_config_path_str, eval_config_base_dir):
     if not pp.is_absolute():
         for candidate in [
             eval_config_base_dir / pp,
+            PKG_ROOT / pp,
             REPO_ROOT / pp,
+            Path.cwd() / pp,
         ]:
             if candidate.exists():
                 pp = candidate.resolve()
@@ -214,6 +217,8 @@ def main():
     prepare_config_path = eval_config["prepare_config"]
     prepare_cfg = load_prepare_config(prepare_config_path, eval_base_dir)
     output_dir = prepare_cfg["output_dir"]
+    if not Path(output_dir).is_absolute():
+        output_dir = str((REPO_ROOT / output_dir).resolve())
 
     # ── Optional separate scores directory (when scores aren't in output_dir) ─
     scores_dir = eval_config.get("scores_dir")
