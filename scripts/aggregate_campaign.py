@@ -164,7 +164,7 @@ def macro_average(df, counts):
             np.nanstd(mat, axis=1, ddof=1), 4)
         with np.errstate(divide="ignore", invalid="ignore"):
             wavg = np.where(keep[:, None], mat, 0).dot(W) / np.where(
-                keep[:, None], 1.0, 0.0).dot(W)
+                keep, W.sum(), 0.0)
             dev = np.where(keep[:, None], mat - wavg[:, None], 0.0)
             wstd = np.sqrt(
                 (dev ** 2 * np.where(keep[:, None], W[None, :], 0.0)).sum(
