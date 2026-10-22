@@ -460,6 +460,7 @@ table and verify-C evidence).
 | PR `queries_dir` stale (June `full/`) | config fix (9 files) | pamr-prod Phase D failure; root canonical + compat copies |
 | evaluate.py prepare_config resolution | 0ea2f65 | missing PKG_ROOT candidate → FileNotFoundError on `configs/eval/…`; first reached only after pamr-prod was fixed; validated by CPU job 79454 (4 chains ALL-OK) |
 | aggregate PAMR/PAR Hits keys | 68ea46c | JSON round-trips nested int keys to strings → H1/H3/H5 blanked; `_hits_value` coerces both |
+| aggregate macro_average denominator | 048de6a | first fresh run crashed: `np.where(keep[:,None],1.0,0.0).dot(W)` is (n,1)·(4,) → ValueError; rows now divide by `W.sum()` (June math for complete rows) |
 | clone_paths masked cp failures | cd5ceee | trailing `echo` returned rc=0; `|| return 1` + fail-fast |
 | Disk pre-flight missing | cd5ceee | phaseD gate 8G / phaseE gate 12G on /media02 (PAMR ckpts ≈1.3–1.5 GB each) |
 | ranking per-rel lf NaN | e891aa7 | relation with zero lf ranks emitted nan→NaN JSON; lf fields now skipped for that relation (strict metrics unaffected) |
