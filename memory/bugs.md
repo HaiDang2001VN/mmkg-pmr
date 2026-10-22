@@ -81,15 +81,21 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 
 ### IN FLIGHT at compaction
 
-- **Job 79444 (Phase D rerun)**: PENDING in the fairshare queue at
-  write time (submitted 2026-10-22 ~01:50 +7). It re-runs: 4 score
-  chains (cached-path re-score; ~12 min total) → PAMR prod (pamr.yaml;
-  expected minutes-scale; writes `full/pamr/{pamr_best.pt,
-  pamr_training_metrics.json,test_scores.csv}`) → clone+PAR
-  (`full/par/`) → evaluate ×4 (`full/vlkge/<Model>/metrics.json`) →
-  verify-C (PAMR vs `full/vlkge/TransE/test_scores.csv`). Job log:
-  `reports/phaseD_79444.out`; gates = `ACCEPTANCE step=<name> rc=`
-  lines; final `ALL-STEPS-DONE`.
+- **Job 79444 (Phase D rerun)**: RUNNING on gpu01 (started 2026-10-22
+  ~01:55 +7). It re-runs: 4 score chains (cached-path re-score) →
+  PAMR prod (pamr.yaml) → clone+PAR → evaluate ×4 (`metrics.json`) →
+  verify-C. Job log: `reports/phaseD_79444.out`; gates =
+  `ACCEPTANCE step=<name> rc=` lines; final `ALL-STEPS-DONE`.
+- **Static audit round 2 (2026-10-22, pre-start)**: found + fixed two
+  latent correctness defects that the first Phase D run never reached:
+  (a) evaluate.py could not resolve `prepare_config: configs/eval/…`
+  (missing PKG_ROOT candidate) — proven by CPU pre-flight 79454 which
+  ran all four evaluate chains end-to-end (ALL-OK; all four per-model
+  `metrics.json` now pre-written, idempotent with 79444); (b) the
+  aggregator read PAMR/PAR nested `Hits` with int keys after a JSON
+  round-trip (string keys) → H1/H3/H5 would have been blank. Also
+  hardened: clone_paths fail-fast + /media02 free-space gates
+  (phaseD 8G, phaseE 12G), ranking per-relation lf NaN guard.
 
 ### NEXT ACTIONS (strict order)
 
@@ -308,8 +314,14 @@ aba04ab; regression gate 78922 ALL OK.
 ### Phase D (2026-10-22)
 79379: 4 score chains PASSED; pamr-prod FAILED on stale June
 queries_dir (`…/full/`) vs fresh preproc-root queries → all 9 PR
-configs fixed (+ compat copies under full/) → rerun 79444 (in flight
-at compaction, see §0).
+configs fixed (+ compat copies under full/) → rerun 79444.
+Pre-start audit round 2 (before 79444 began running): fixed evaluate
+prepare_config resolution (0ea2f65) and aggregate Hits key coercion
+(68ea46c); hardened clone_paths + disk gates (cd5ceee) and the
+per-relation lf NaN edge (e891aa7). CPU pre-flight 79454 then ran all
+four evaluate chains ALL-OK in 26 s and pre-wrote every per-model
+`metrics.json` (idempotent with 79444's own evaluate steps). 79444
+picked up the fixes at start (RUNNING on gpu01, see §0).
 
 ---
 
@@ -440,6 +452,11 @@ at compaction, see §0).
 | ranking F-9 per-rel lf leak | aba04ab | per-query `lf_recorded` gate; no campaign-metric impact |
 | score.py duplicate line F-11 | aba04ab | cosmetic |
 | PR `queries_dir` stale (June `full/`) | config fix (9 files) | pamr-prod Phase D failure; root canonical + compat copies |
+| evaluate.py prepare_config resolution | 0ea2f65 | missing PKG_ROOT candidate → FileNotFoundError on `configs/eval/…`; first reached only after pamr-prod was fixed; validated by CPU job 79454 (4 chains ALL-OK) |
+| aggregate PAMR/PAR Hits keys | 68ea46c | JSON round-trips nested int keys to strings → H1/H3/H5 blanked; `_hits_value` coerces both |
+| clone_paths masked cp failures | cd5ceee | trailing `echo` returned rc=0; `|| return 1` + fail-fast |
+| Disk pre-flight missing | cd5ceee | phaseD gate 8G / phaseE gate 12G on /media02 (PAMR ckpts ≈1.3–1.5 GB each) |
+| ranking per-rel lf NaN | e891aa7 | relation with zero lf ranks emitted nan→NaN JSON; lf fields now skipped for that relation (strict metrics unaffected) |
 | Harness CUDA tolerance gaps | 1e-4 contract + per-rel checks honor tol | GPU fp-tie determinism documented |
 | Known-swap CSVs (June) | untrusted | fresh regeneration authoritative |
 
