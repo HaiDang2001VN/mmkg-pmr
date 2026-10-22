@@ -42,6 +42,16 @@ METHODS_JUNE = [
 ]
 
 
+def _hits_value(entry, k):
+    """Read a Hits value from nested (int or str JSON keys) or flat keys."""
+    hits = entry.get("Hits")
+    if hits:
+        if k in hits:
+            return hits[k]
+        return hits.get(str(k))
+    return entry.get(f"Hits@{k}")
+
+
 def per_relation_from_evaluate(metrics_path, split="test"):
     m = json.load(open(metrics_path))
     test = m.get(split) if split in m else m
@@ -53,9 +63,9 @@ def per_relation_from_evaluate(metrics_path, split="test"):
             continue
         out[rel] = {
             "MRR": e.get("MRR"),
-            "H1": (e.get("Hits") or {}).get(1, e.get("Hits@1")),
-            "H3": (e.get("Hits") or {}).get(3, e.get("Hits@3")),
-            "H5": (e.get("Hits") or {}).get(5, e.get("Hits@5")),
+            "H1": _hits_value(e, 1),
+            "H3": _hits_value(e, 3),
+            "H5": _hits_value(e, 5),
         }
     return out, test.get("MRR")
 
@@ -65,15 +75,16 @@ def per_relation_from_pamr(metrics_path, split="test"):
     test = m[split]
     per_rel = test.get("per_relation", {})
     out = {}
-    hits_map = {"H1": 1, "H3": 3, "H5": 5}
     for rel in RELATIONS:
         e = per_rel.get(rel)
         if e is None:
             continue
-        row = {"MRR": e.get("MRR")}
-        for k, kk in hits_map.items():
-            row[k] = (e.get("Hits") or {}).get(kk)
-        out[rel] = row
+        out[rel] = {
+            "MRR": e.get("MRR"),
+            "H1": _hits_value(e, 1),
+            "H3": _hits_value(e, 3),
+            "H5": _hits_value(e, 5),
+        }
     return out, test.get("MRR")
 
 
