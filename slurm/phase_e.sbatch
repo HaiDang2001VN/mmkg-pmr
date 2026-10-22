@@ -51,12 +51,19 @@ done
 [ "$MISMATCH" = 0 ] || exit 3
 echo "ACCEPTANCE phaseE checks-ok"
 
+FREE_GB=$(df -BG /media02 | awk 'NR==2 {gsub("G","",$4); print $4}')
+if [ -z "$FREE_GB" ] || [ "$FREE_GB" -lt 12 ]; then
+  echo "ACCEPTANCE phaseE BLOCKED — /media02 free ${FREE_GB:-unknown}G < 12G"
+  exit 4
+fi
+echo "ACCEPTANCE phaseE disk-ok free=${FREE_GB}G"
+
 clone_paths() {
   local target="$1" src="$2"
-  mkdir -p "$target"
-  cp "$src"/{train,val,test}_paths.csv "$target/"
-  cp "$src"/*_paths_meta.json "$target/"
-  cp "$src"/{entity_mapping.csv,relation_mapping.csv,relation_manifest.json} "$target/"
+  mkdir -p "$target" || return 1
+  cp "$src"/{train,val,test}_paths.csv "$target/" || return 1
+  cp "$src"/*_paths_meta.json "$target/" || return 1
+  cp "$src"/{entity_mapping.csv,relation_mapping.csv,relation_manifest.json} "$target/" || return 1
   echo "ACCEPTANCE cloned paths from $src -> $target"
 }
 

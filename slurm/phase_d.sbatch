@@ -50,13 +50,20 @@ done
 [ "$MISMATCH" = 0 ] || exit 3
 echo "ACCEPTANCE phaseD checkpoints-ok"
 
+FREE_GB=$(df -BG /media02 | awk 'NR==2 {gsub("G","",$4); print $4}')
+if [ -z "$FREE_GB" ] || [ "$FREE_GB" -lt 8 ]; then
+  echo "ACCEPTANCE phaseD BLOCKED — /media02 free ${FREE_GB:-unknown}G < 8G"
+  exit 4
+fi
+echo "ACCEPTANCE phaseD disk-ok free=${FREE_GB}G"
+
 # helpers: clone the regenerated path artifacts into an output-own dir
 clone_paths() {
   local target="$1"
-  mkdir -p "$target"
-  cp "$SRCP"/{train,val,test}_paths.csv "$target/"
-  cp "$SRCP"/*_paths_meta.json "$target/"
-  cp "$SRCP"/{entity_mapping.csv,relation_mapping.csv,relation_manifest.json} "$target/"
+  mkdir -p "$target" || return 1
+  cp "$SRCP"/{train,val,test}_paths.csv "$target/" || return 1
+  cp "$SRCP"/*_paths_meta.json "$target/" || return 1
+  cp "$SRCP"/{entity_mapping.csv,relation_mapping.csv,relation_manifest.json} "$target/" || return 1
   echo "ACCEPTANCE cloned paths -> $target"
 }
 
