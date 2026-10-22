@@ -169,8 +169,8 @@ def macro_average(df, counts):
             wstd = np.sqrt(
                 (dev ** 2 * np.where(keep[:, None], W[None, :], 0.0)).sum(
                     axis=1)
-                / np.max(np.where(keep[:, None], W[None, :], 0.0).sum(axis=1),
-                         1e-9))
+                / np.maximum(np.where(keep[:, None], W[None, :], 0.0).sum(
+                    axis=1), 1e-9))
         result[f"{metric}_wavg"] = np.round(wavg, 4)
         result[f"{metric}_wstd"] = np.round(wstd, 4)
     if "MRR Overall" in df:
