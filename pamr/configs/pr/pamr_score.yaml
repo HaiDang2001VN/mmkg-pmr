@@ -8,7 +8,9 @@
 
 # Data sources
 paths_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/pamr/
-queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/
+# Canonical fresh layout: prepared queries live at the preproc ROOT
+# (June-era copies under full/ are compatibility duplicates).
+queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/
 
 # Output
 output_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/pamr/pathlen/artist/pathlen_first/

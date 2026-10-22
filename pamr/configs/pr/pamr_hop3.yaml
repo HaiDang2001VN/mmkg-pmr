@@ -31,7 +31,9 @@ vlkge_scope: train
 
 # ── Path data (full production) ────────────────────────────────────────────
 paths_dir: ../checkpoints/preproc/wikiart_mkg_v2_h3/pamr/
-queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/
+# Canonical fresh layout: prepared queries live at the preproc ROOT
+# (June-era copies under full/ are compatibility duplicates).
+queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/
 max_hops: 3
 max_tokens: 9
 

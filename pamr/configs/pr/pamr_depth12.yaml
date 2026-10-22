@@ -34,7 +34,9 @@ paths_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/ablations/depth12/
 # Phase C/D note: paths_dir is OUTPUT-OWN: the chain copies the regenerated
 # path artifacts (from full/pamr, or _h3/pamr for hop3) here before this run
 # so pamr_best/metrics/scores never clobber another config's artifacts.
-queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/full/
+# Canonical fresh layout: prepared queries live at the preproc ROOT
+# (June-era copies under full/ are compatibility duplicates).
+queries_dir: ../checkpoints/preproc/wikiart_mkg_v2/
 max_hops: 5
 max_tokens: 13
 
