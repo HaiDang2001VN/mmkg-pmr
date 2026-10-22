@@ -322,6 +322,7 @@ def main():
         print(f"  Queries from:          {queries_dir}")
     datasets = {}
     dataloaders = {}
+    dataset_build_timings = {}   # Phase H: paired-build / probe-build cost
 
     num_workers = args.workers
     if num_workers is None:
@@ -366,6 +367,7 @@ def main():
 
         wl = wl_train if split == "train" else wl_eval
         print(f"  Loading {split} split...")
+        ds_build_start = time.perf_counter()
         if split == "train":
             ds = PAMRPairedDataset(paths_csv, queries_csv, entity_to_id,
                                    relation_to_id, max_hops=max_hops,
@@ -378,7 +380,9 @@ def main():
                              relation_whitelist=wl,
                              num_relations=dl.get_num_relations(),
                              registry_hash=relation_registry.registry_hash)
-        print(f"    {len(ds):,} samples")
+        dataset_build_timings[split] = round(
+            time.perf_counter() - ds_build_start, 3)
+        print(f"    {len(ds):,} samples (build {dataset_build_timings[split]}s)")
         datasets[split] = ds
 
         loader_batch_size = batch_size if split == "train" else eval_batch_size
@@ -975,6 +979,7 @@ def main():
             "per_epoch": epoch_metrics,
             "best_epoch": best_epoch,
             "best_val_mrr": round(best_val_mrr, 6),
+            "dataset_build_timings_s": dataset_build_timings,
             "path_coverage": per_relation_path_coverage(
                 datasets, relation_to_id),
             "test": {
