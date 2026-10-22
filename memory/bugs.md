@@ -81,33 +81,42 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 
 ### IN FLIGHT at compaction
 
-- **Job 79444 (Phase D rerun)**: RUNNING on gpu01 (started 2026-10-22
-  ~01:55 +7). It re-runs: 4 score chains (cached-path re-score) →
-  PAMR prod (pamr.yaml) → clone+PAR → evaluate ×4 (`metrics.json`) →
-  verify-C. Job log: `reports/phaseD_79444.out`; gates =
-  `ACCEPTANCE step=<name> rc=` lines; final `ALL-STEPS-DONE`.
+- **Job 79444 (Phase D) — PASSED 2026-10-22T02:20:10Z** (11 steps,
+  ALL-STEPS-DONE; verify-C clean: 0 scope violations, 0 own-edge
+  violations, 0 probe defects, candidate identity 239 queries /
+  0 problems). Fresh test-protocol metrics (239 queries, 1 pos + 10
+  negs, K=10):
+  | row | test MRR | H@1 | H@3 | H@5 |
+  |---|---|---|---|---|
+  | VLKGE-TransE | 0.7006 | 0.5523 | 0.7950 | 0.9163 |
+  | VLKGE-RotatE | 0.6171 | 0.4435 | 0.7364 | 0.8787 |
+  | VLKGE-DistMult | 0.5948 | 0.4268 | 0.6987 | 0.8285 |
+  | VLKGE-ComplEx | 0.5614 | 0.3724 | 0.6695 | 0.8117 |
+  | PAMR (best ep1, val .8034) | 0.7215 | 0.5858 | 0.8159 | 0.9247 |
+  | PAR (best ep3, val .7457) | 0.6564 | 0.4979 | 0.7699 | 0.8996 |
+  PAMR > its frozen TransE backbone on this protocol; PAR < PAMR
+  (structural-only backbone). Per-model metrics.json, pamr/par
+  training metrics + test_scores.csv landed; coverage 1.0.
+- **Phase E next**: submit after the register sync
+  (`sbatch -N1 --nodelist=gpu01,gpu02,gpu04 slurm/phase_e.sbatch`;
+  hardened clone fail-fast + 12G disk gate now active). Six runs
+  (seed1, finetune, depth12, cls, lf_temp, hop3), output-own dirs.
 - **Static audit round 2 (2026-10-22, pre-start)**: found + fixed two
   latent correctness defects that the first Phase D run never reached:
   (a) evaluate.py could not resolve `prepare_config: configs/eval/…`
   (missing PKG_ROOT candidate) — proven by CPU pre-flight 79454 which
   ran all four evaluate chains end-to-end (ALL-OK; all four per-model
-  `metrics.json` now pre-written, idempotent with 79444); (b) the
-  aggregator read PAMR/PAR nested `Hits` with int keys after a JSON
-  round-trip (string keys) → H1/H3/H5 would have been blank. Also
+  `metrics.json` were then rewritten in 3–4 s each inside 79444);
+  (b) the aggregator read PAMR/PAR nested `Hits` with int keys after a
+  JSON round-trip (string keys) → H1/H3/H5 would have been blank. Also
   hardened: clone_paths fail-fast + /media02 free-space gates
   (phaseD 8G, phaseE 12G), ranking per-relation lf NaN guard.
 
 ### NEXT ACTIONS (strict order)
 
-1. **Check 79444** (`reports/phaseD_79444.out`):
-   - If FAILED: diagnose `.out`/`.err`; pamr-prod is the highest-risk
-     step (first fresh PAMR production run; its shape gates:
-     relation_filter train_eval, d_model auto-detect 768, bs 8 group
-     batches, min_eval_coverage 0.95, patience 5). Same failure twice
-     → write `reports/blocker_phaseD.md` + escalate.
-   - If PASS: verify per-model `metrics.json` + PAMR/PAR
-     `pamr_training_metrics.json` (test.per_relation exists) + verify-C
-     PASS, then proceed.
+1. **DONE — 79444 PASSED** (2026-10-22T02:20:10Z; results + verify-C
+   evidence in the IN FLIGHT block above). PAMR/PAR artifacts verified
+   (coverage 1.0; dataset_build_timings present).
 2. **Phase E/G** (one GPU job): `sbatch -N1
    --nodelist=gpu01,gpu02,gpu04 slurm/phase_e.sbatch` (~1.5–2h).
    Runs seed1 + finetune + depth12 + cls + lf_temp (clone-before-run,
@@ -319,25 +328,22 @@ Pre-start audit round 2 (before 79444 began running): fixed evaluate
 prepare_config resolution (0ea2f65) and aggregate Hits key coercion
 (68ea46c); hardened clone_paths + disk gates (cd5ceee) and the
 per-relation lf NaN edge (e891aa7). CPU pre-flight 79454 then ran all
-four evaluate chains ALL-OK in 26 s and pre-wrote every per-model
-`metrics.json` (idempotent with 79444's own evaluate steps). 79444
-picked up the fixes at start (RUNNING on gpu01, see §0).
+four evaluate chains ALL-OK in 26 s. 79444 picked up the fixes at
+start and PASSED all 11 steps at 02:20:10Z (see §0 for the results
+table and verify-C evidence).
 
 ---
 
 ## 3. Remaining program (exact commands)
 
-1. **Phase D completion** (79444): see §0 next-actions. On PASS the
-   artifacts are:
+1. **Phase D — DONE** (79444 PASSED 2026-10-22; see §0 results table).
+   Artifacts:
    - `full/vlkge/<Model>/{train,val,test}_scores.csv` +
-     `{split}_score_metrics.json` + `metrics.json` (per model, from
-     the per-model `neg_eval_*.yaml`).
-   - `full/pamr/` {pamr_best.pt, pamr_training_metrics.json
-     (incl. `dataset_build_timings_s`, test.per_relation),
-     test_scores.csv (probe-level: query_id, candidate_tail_id,
-     score, is_positive)}; `full/par/` same shape (struct backbone).
+     `metrics.json` (per model).
+   - `full/pamr/` {pamr_best.pt, pamr_training_metrics.json (incl.
+     `dataset_build_timings_s`, test.per_relation), test_scores.csv (probe-level)}; `full/par/` same shape.
    - verify-C PASS (PAMR candidate identity vs TransE scores).
-2. **Phase E/G**: `sbatch -N1 --nodelist=gpu01,gpu02,gpu04
+2. **Phase E/G** — IN FLIGHT: `sbatch -N1 --nodelist=gpu01,gpu02,gpu04
    slurm/phase_e.sbatch`. Gates: each ablation's
    `pamr_training_metrics.json` under its output-own dir
    (`full/ablations/{seed1,finetune,depth12,cls,lf_temp}/`; hop3 in
