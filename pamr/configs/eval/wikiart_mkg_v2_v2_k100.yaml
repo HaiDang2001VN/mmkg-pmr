@@ -38,6 +38,7 @@ relation_filter:
 use_per_relation_candidates: true
 
 sampling_method: rejection
+allow_variable_negatives: true
 sample_fraction: 1.0
 
 seed: 42

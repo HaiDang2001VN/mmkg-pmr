@@ -40,12 +40,14 @@ _shared_split_name = None
 _shared_base_seed = None
 _shared_field_names = None
 _shared_sampling_method = None
+_shared_allow_variable = False
 
 
-def _init_worker(data_dir, K, split_name, base_seed, field_names, sampling_method):
+def _init_worker(data_dir, K, split_name, base_seed, field_names, sampling_method,
+                 allow_variable=False):
     global _shared_pool_data, _shared_filter_map, _shared_id_to_entity
     global _shared_K, _shared_split_name, _shared_base_seed, _shared_field_names
-    global _shared_sampling_method
+    global _shared_sampling_method, _shared_allow_variable
 
     with open(os.path.join(data_dir, "pool_data.pkl"), "rb") as f:
         _shared_pool_data = pickle.load(f)
@@ -59,6 +61,7 @@ def _init_worker(data_dir, K, split_name, base_seed, field_names, sampling_metho
     _shared_base_seed = base_seed
     _shared_field_names = field_names
     _shared_sampling_method = sampling_method
+    _shared_allow_variable = bool(allow_variable)
 
 
 def _process_chunk(args):
@@ -71,6 +74,7 @@ def _process_chunk(args):
     split_name  = _shared_split_name
     field_names = _shared_field_names
     method      = _shared_sampling_method
+    allow_variable = _shared_allow_variable
     rng = np.random.default_rng(_shared_base_seed + multiprocessing.current_process()._identity[0])
 
     rows = []
@@ -91,10 +95,11 @@ def _process_chunk(args):
             candidates = sorted(set(pool) - known_tails)
             for (t_id, t_name, h_name, r_name) in chunk_triples.get((h_id, r_id), []):
                 available = [c for c in candidates if c != t_id]
-                if len(available) < K:
+                target_k = min(K, len(available)) if allow_variable else K
+                if target_k <= 0 or (not allow_variable and len(available) < K):
                     skipped_empty += 1; continue
-                sampled = rng.choice(available, size=K, replace=False)
-                actual_neg_counts.append(K)
+                sampled = rng.choice(available, size=target_k, replace=False)
+                actual_neg_counts.append(target_k)
                 _emit_query(rows, field_names, h_name, r_name, t_name,
                             h_id, r_id, t_id, 1, split_name)
                 for neg_t_id in sampled:
@@ -111,27 +116,29 @@ def _process_chunk(args):
                 available_count = pool_size - len(excluded)
                 if t_id not in excluded:
                     available_count -= 1
-                if available_count < K:
+                target_k = (min(K, available_count) if allow_variable else K)
+                if target_k <= 0 or (not allow_variable
+                                     and available_count < K):
                     skipped_empty += 1; continue
                 sampled = set()
-                max_attempts = min(K * 100, pool_size * 2)
+                max_attempts = min(target_k * 100, pool_size * 2)
                 attempts = 0
-                while len(sampled) < K and attempts < max_attempts:
+                while len(sampled) < target_k and attempts < max_attempts:
                     cand = int(rng.integers(0, pool_size))
                     tid_c = int(pool_arr[cand])
                     if tid_c != t_id and tid_c not in known_tails:
                         sampled.add(tid_c)
                     attempts += 1
-                if len(sampled) < K:
+                if len(sampled) < target_k:
                     # Deterministic completion prevents bounded rejection
                     # from silently changing the benchmark cardinality.
                     available = sorted(pool_set - known_tails - {t_id})
-                    if len(available) < K:
+                    if len(available) < target_k:
                         skipped_empty += 1
                         continue
                     sampled = set(int(x) for x in rng.choice(
-                        available, size=K, replace=False))
-                actual_neg_counts.append(K)
+                        available, size=target_k, replace=False))
+                actual_neg_counts.append(target_k)
                 _emit_query(rows, field_names, h_name, r_name, t_name,
                             h_id, r_id, t_id, 1, split_name)
                 for neg_t_id in sampled:
@@ -418,7 +425,9 @@ def main():
             with multiprocessing.Pool(
                 processes=n_workers,
                 initializer=_init_worker,
-                initargs=(tmp_dir, K, split_name, seed, FIELD_NAMES, sampling_method),
+                initargs=(tmp_dir, K, split_name, seed, FIELD_NAMES,
+                          sampling_method,
+                          config.get("allow_variable_negatives", False)),
             ) as pool_mp:
                 results = list(tqdm(
                     pool_mp.imap_unordered(_process_chunk, chunk_args),
