@@ -84,6 +84,9 @@ def _metrics(frame):
         "num_queries": int(m["num_queries"]),
         "MRR": round(float(m["MRR"]), 6),
         "Hits": {str(k): round(float(v), 6) for k, v in m["Hits"].items()},
+        "MRR_ns": round(float(m["MRR_ns"]), 6),
+        "Hits_ns": {str(k): round(float(v), 6)
+                    for k, v in m["Hits_ns"].items()},
     }
 
 
@@ -107,6 +110,16 @@ def _recip_ranks(frame, all_path_ids):
             continue
         pos = g.loc[g["is_positive"] == 1, "score"].max()
         out[int(qid)] = 1.0 / (int((g["score"] > pos).sum()) + 1)
+    return out
+
+
+def _recip_ranks_ns(frame, all_path_ids):
+    out = {}
+    for qid, g in frame.groupby("query_id"):
+        if qid not in all_path_ids:
+            continue
+        pos = g.loc[g["is_positive"] == 1, "score"].max()
+        out[int(qid)] = 1.0 / max(1, int((g["score"] >= pos).sum()))
     return out
 
 
@@ -177,6 +190,13 @@ def main():
         report["bootstrap_all_path_vs_backbone"] = _bootstrap(model_r, bb_r)
         report["bootstrap_all_path_vs_control"] = _bootstrap(model_r, ctrl_r)
         report["bootstrap_all_path_vs_length"] = _bootstrap(model_r, len_r)
+        model_ns = _recip_ranks_ns(frame, ap_ids)
+        bb_ns = _recip_ranks_ns(backbone, ap_ids)
+        ctrl_ns = _recip_ranks_ns(ctrl, ap_ids)
+        len_ns = _recip_ranks_ns(length, ap_ids)
+        report["bootstrap_ns_all_path_vs_backbone"] = _bootstrap(model_ns, bb_ns)
+        report["bootstrap_ns_all_path_vs_control"] = _bootstrap(model_ns, ctrl_ns)
+        report["bootstrap_ns_all_path_vs_length"] = _bootstrap(model_ns, len_ns)
     print("ACCEPTANCE path-subset-control " + json.dumps(report))
     if args.out:
         with open(args.out, "w") as f:

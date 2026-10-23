@@ -3,10 +3,13 @@
 Each run is described by (label, training-metrics JSON, path-control JSON).
 A run passes when:
   - the trained model's path-residual std >= --min-std, and
-  - the paired-bootstrap 95% CI lower bound of all-path MRR minus backbone
-    is > 0, and
+  - the paired-bootstrap 95% CI lower bound of all-path NON-STRICT MRR
+    minus backbone is > 0, and
   - the same against the presence control is > 0, and
   - the same against the path-length heuristic (-hops) is > 0.
+  Non-strict (ties count against the positive) is the primary metric: the
+  strict rank gives free credit for ties, which inflates constant-score
+  heuristics (the length prior: strict 0.8245 vs non-strict 0.6328).
 The best passing run (highest all-path MRR) is selected; exit 0 iff one
 passes, 2 otherwise.
 """
@@ -33,10 +36,11 @@ def main():
             control = json.load(f)
         std = float(metrics.get("test", {})
                     .get("residual_stats", {}).get("path_std", 0.0))
-        ap_mrr = control.get("model", {}).get("all_path", {}).get("MRR")
-        bb = control.get("bootstrap_all_path_vs_backbone") or {}
-        ct = control.get("bootstrap_all_path_vs_control") or {}
-        ln = control.get("bootstrap_all_path_vs_length") or {}
+        ap_mrr = control.get("model", {}).get("all_path", {}).get("MRR_ns")
+        ap_mrr_strict = control.get("model", {}).get("all_path", {}).get("MRR")
+        bb = control.get("bootstrap_ns_all_path_vs_backbone") or {}
+        ct = control.get("bootstrap_ns_all_path_vs_control") or {}
+        ln = control.get("bootstrap_ns_all_path_vs_length") or {}
         bb_lo = (bb.get("ci95") or [None])[0]
         ct_lo = (ct.get("ci95") or [None])[0]
         ln_lo = (ln.get("ci95") or [None])[0]
@@ -46,15 +50,18 @@ def main():
         entry = {
             "label": label,
             "path_residual_std": round(std, 8),
-            "all_path_mrr": ap_mrr,
-            "full_mrr": control.get("model", {}).get("full", {}).get("MRR"),
+            "all_path_mrr_ns": ap_mrr,
+            "all_path_mrr_strict": ap_mrr_strict,
+            "full_mrr_ns": control.get("model", {}).get("full", {}).get("MRR_ns"),
+            "full_mrr_strict": control.get("model", {}).get("full", {}).get("MRR"),
             "vs_backbone_ci_lo": bb_lo,
             "vs_control_ci_lo": ct_lo,
             "vs_length_ci_lo": ln_lo,
             "passed": bool(passed),
         }
         runs.append(entry)
-        if passed and (best is None or (ap_mrr or 0) > best["all_path_mrr"]):
+        if passed and (best is None
+                       or (ap_mrr or 0) > best["all_path_mrr_ns"]):
             best = entry
 
     report = {"min_std": args.min_std, "runs": runs, "selected": best}
