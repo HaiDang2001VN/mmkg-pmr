@@ -115,6 +115,22 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   hop3 all rc=0; hop3's .8044 is the same presence artifact at +53.96
   (control-reproduced). Seeding/depth do not change the ranking (seed1
   and depth12 identical to PAMR: 239/239 ranks).
+- **Pilot round 1 (79760) — FAILED all four arms**: random/hard ×
+  pairwise/listwise all give all-path MRR == backbone == presence
+  control (0.7295; bootstrap 0.0) with full MRR == 0.7215. Diagnosis:
+  **train paths are 80% 1-hop** (mean 1.34) while **test paths are 3–5
+  hops** (mean 3.6); the 1-hop train paths use OTHER direct relations
+  between the same pair (edge type 17 = isRelatedArtist etc.), which the
+  old own-edge mask (query relation + inverse only) did not remove.
+  Round 2 (protocol v2.1, job 79763): mask **every** direct head-tail
+  edge (any relation) and re-extract all paths (v1, random/hard, K100,
+  prod+h3) with the stricter verifier. If this round fails, stop for
+  the architecture-vs-analysis decision (Q8).
+- **K=100 protocol is "up to 100"**: the artist split-local pools hold
+  fewer than 100 eligible candidates for every query, so `prepare` now
+  supports `allow_variable_negatives: true`; actual negatives are
+  19–61 per query (val median 50, test median 45). This is the
+  co-primary harder protocol (documented; not a bug).
 - **Journal plan v2 (approved 2026-10-23)**: K=10 + presence control +
   pathless-probe masking; K=10 and K=100 co-primary; pilot random-K10
   vs hard-K10 (top-10 of 100 sampled); 5 PAMR seeds (checkpoints only
@@ -494,6 +510,7 @@ by K=10 + pathless masking. Both fixes are required.
 | evaluate.py prepare_config resolution | 0ea2f65 | missing PKG_ROOT candidate → FileNotFoundError on `configs/eval/…`; first reached only after pamr-prod was fixed; validated by CPU job 79454 (4 chains ALL-OK) |
 | aggregate PAMR/PAR Hits keys | 68ea46c | JSON round-trips nested int keys to strings → H1/H3/H5 blanked; `_hits_value` coerces both |
 | aggregate macro_average denominator | 048de6a | first fresh run crashed: `np.where(keep[:,None],1.0,0.0).dot(W)` is (n,1)·(4,) → ValueError; rows now divide by `W.sum()` (June math for complete rows) |
+| Path own-edge mask too narrow | c7736b0 | masked only the query relation/inverse; direct alternative relations (e.g., isRelatedArtist) gave 1-hop train paths (train mean 1.34 vs test 3.6 hops), so the model learned a non-transferable shortcut. Now masks every head-tail edge (any relation) |
 | clone_paths masked cp failures | cd5ceee | trailing `echo` returned rc=0; `|| return 1` + fail-fast |
 | Disk pre-flight missing | cd5ceee | phaseD gate 8G / phaseE gate 12G on /media02 (PAMR ckpts ≈1.3–1.5 GB each) |
 | ranking per-rel lf NaN | e891aa7 | relation with zero lf ranks emitted nan→NaN JSON; lf fields now skipped for that relation (strict metrics unaffected) |
