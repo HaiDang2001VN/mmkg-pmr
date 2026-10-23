@@ -1,0 +1,43 @@
+# Journal v2 — K=100 evaluation queries (val/test only)
+#
+# Independent negative draw from the same per-relation pools (seed 42),
+# used as the co-primary harder protocol. Train queries are not regenerated.
+dataset: wikiart_mkg_v2
+data_path: ../data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2_v2/k100/queries/
+
+negatives_per_query:
+  val: 100
+  test: 100
+
+exclude_relations_eval:
+  - isRelatedToArtwork
+  - isRelatedToArtist
+
+inverse_relation_pairs:
+  isInfluencedBy: isInfluencedOn
+  isPupilOf: isTeacherOf
+
+symmetric_relations: []
+
+artist2artist_relations:
+  - isInfluencedBy
+  - isInfluencedOn
+  - isPupilOf
+  - isTeacherOf
+
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf
+
+use_per_relation_candidates: true
+
+sampling_method: rejection
+sample_fraction: 1.0
+
+seed: 42

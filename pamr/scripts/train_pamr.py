@@ -100,6 +100,8 @@ def parse_args():
                         help="Path to PAMR YAML config file")
     parser.add_argument("--workers", type=int, default=None,
                         help="DataLoader worker processes (default: 4 on GPU, 0 on CPU)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Override the config seed")
     return parser.parse_args()
 
 
@@ -122,6 +124,10 @@ def main():
 
     args = parse_args()
     config, config_dir = resolve_config(args.config)
+
+    if args.seed is not None:
+        config["seed"] = int(args.seed)
+        print(f"Seed override: {args.seed}")
 
     seed = config.get("seed", 42)
     utils.set_seed(seed)
@@ -567,7 +573,8 @@ def main():
                            query_rel_ids, token_mask, candidate_tail_ids,
                            probe_head_ids, batch_has_path)
             loss = model.compute_loss(scores, is_positives, query_ids,
-                                       candidate_tail_ids)
+                                       candidate_tail_ids,
+                                       has_path=batch_has_path)
             loss.backward()
             optimizer.step()
 
@@ -636,7 +643,8 @@ def main():
                                    candidate_tail_ids, probe_head_ids,
                                    batch_has_path)
                     loss = model.compute_loss(
-                        scores, is_positives, query_ids, candidate_tail_ids)
+                        scores, is_positives, query_ids, candidate_tail_ids,
+                        has_path=batch_has_path)
                     val_loss_sum += loss.item()
                     val_batches += 1
 
@@ -812,6 +820,7 @@ def main():
         test_hops = []
         test_cands = []
         test_has_path = []
+        test_residuals = []
 
         print(f"\n{'─' * 60}")
         print("  TEST EVALUATION")
@@ -870,6 +879,12 @@ def main():
                 test_has_path.extend(
                     batch_has_path.cpu().numpy().tolist())
 
+                vlkge_direct = model.vlkge(
+                    probe_head_ids, query_rel_ids, candidate_tail_ids)
+                residual = scores - vlkge_direct.to(scores.dtype)
+                test_residuals.extend(
+                    residual.cpu().numpy().tolist())
+
         test_metrics = compute_rank_metrics(
             test_scores, test_labels, test_qids,
             top_k=[1, 3, 5, 10],
@@ -882,6 +897,35 @@ def main():
             all_has_path=test_has_path,
             lf_no_path_policy=lf_no_path_policy,
         )
+
+        res = np.asarray(test_residuals, dtype=float)
+        hp_arr = np.asarray(test_has_path, dtype=bool)
+        path_res = res[hp_arr]
+        nopath_res = res[~hp_arr]
+        residual_stats = {
+            "path_mean": float(path_res.mean()) if path_res.size else 0.0,
+            "path_std": float(path_res.std()) if path_res.size else 0.0,
+            "path_min": float(path_res.min()) if path_res.size else 0.0,
+            "path_max": float(path_res.max()) if path_res.size else 0.0,
+            "nopath_mean": float(nopath_res.mean()) if nopath_res.size else 0.0,
+            "nopath_std": float(nopath_res.std()) if nopath_res.size else 0.0,
+        }
+        test_metrics["residual_stats"] = residual_stats
+        print(f"  Residual: path std={residual_stats['path_std']:.6f} "
+              f"mean={residual_stats['path_mean']:.4f} "
+              f"[{residual_stats['path_min']:.4f}, "
+              f"{residual_stats['path_max']:.4f}] | "
+              f"no-path mean={residual_stats['nopath_mean']:.4f}")
+        min_residual_std = config.get("min_residual_std")
+        print(f"ACCEPTANCE path-dependence "
+              f"std={residual_stats['path_std']:.6f} "
+              f"threshold={min_residual_std}")
+        if (min_residual_std is not None
+                and residual_stats["path_std"] < float(min_residual_std)):
+            print(f"ACCEPTANCE path-dependence FAILED "
+                  f"std={residual_stats['path_std']:.6f} < "
+                  f"{min_residual_std}")
+            sys.exit(2)
 
         print(f"\n  Queries:  {test_metrics['num_queries']}")
         if test_metrics.get("coverage") is not None:

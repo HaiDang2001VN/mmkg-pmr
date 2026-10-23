@@ -984,11 +984,13 @@ class PAMR(nn.Module):
         return (out * valid).sum(dim=1) / valid.sum(dim=1).clamp(min=1)
 
     def _aggregate_candidates(self, scores, labels, query_ids,
-                              candidate_tail_ids):
+                              candidate_tail_ids, has_path=None):
         """Candidate-tail aggregation: score(tail) = max over its probes.
 
-        Returns (cand_scores, cand_labels, cand_query_ids) with one entry per
-        unique (query_id, candidate_tail_id) pair inside the batch.
+        Returns (cand_scores, cand_labels, cand_query_ids, cand_has_path)
+        with one entry per unique (query_id, candidate_tail_id) pair
+        inside the batch. cand_has_path is the max path availability of
+        the candidate's probes (None when has_path is not supplied).
         """
         from collections import defaultdict
         groups = defaultdict(list)
@@ -998,17 +1000,23 @@ class PAMR(nn.Module):
         cand_scores = []
         cand_labels = []
         cand_query_ids = []
+        cand_has_path = []
         for (qid, _tail), idxs in sorted(groups.items()):
             gather = torch.tensor(idxs, device=scores.device, dtype=torch.long)
             cand_scores.append(scores[gather].max())
             cand_labels.append(labels[gather].max())
             cand_query_ids.append(qid)
+            if has_path is not None:
+                cand_has_path.append(has_path[gather].max())
         if not cand_scores:
             zero = scores.sum() * 0.0
-            return zero, zero, zero.long()
+            return (zero, zero, zero.long(),
+                    zero.bool() if has_path is not None else None)
+        hp = (torch.stack(cand_has_path).to(dtype=torch.bool)
+              if has_path is not None else None)
         return (torch.stack(cand_scores), torch.stack(cand_labels),
                 torch.tensor(cand_query_ids, dtype=torch.long,
-                             device=scores.device))
+                             device=scores.device), hp)
 
     def forward(self, path_nodes, path_edges, path_directions, node_types,
                 query_rel_id, token_mask, candidate_tail_ids, probe_head_ids,
@@ -1100,7 +1108,7 @@ class PAMR(nn.Module):
         return scores
 
     def compute_loss(self, scores, labels, query_ids=None,
-                     candidate_tail_ids=None):
+                     candidate_tail_ids=None, has_path=None):
         """
         Compute loss based on self.loss_mode.
 
@@ -1109,11 +1117,32 @@ class PAMR(nn.Module):
         listwise_softmax, binary_candidate, ranking) first aggregate probes by
         (query_id, candidate_tail_id) with a max reduction and then optimize
         the configured objective over candidate tails.
+
+        has_path: optional (B,) bool tensor. When supplied, pathless probes
+        are excluded from the objective (candidate-level modes drop pathless
+        candidates). This removes the path-presence shortcut: a constant
+        additive offset is rank-invariant among pathful candidates, so
+        without the mask the loss can be minimised with a constant instead of
+        path-dependent residuals.
         """
+        path_keep = None
+        if has_path is not None:
+            path_keep = has_path.to(dtype=torch.bool)
+
         if self.loss_mode == "binary":
+            if path_keep is not None:
+                if not bool(path_keep.any()):
+                    return scores.sum() * 0.0
+                scores = scores[path_keep]
+                labels = labels[path_keep]
             return self.criterion(scores, labels)
 
         elif self.loss_mode == "link_prediction":
+            if path_keep is not None:
+                if not bool(path_keep.any()):
+                    return scores.sum() * 0.0
+                scores = scores[path_keep]
+                labels = labels[path_keep]
             lbl = 2 * labels - 1  # 0→-1, 1→+1
             return F.softplus(-lbl * scores).mean()
 
@@ -1124,12 +1153,18 @@ class PAMR(nn.Module):
                     "query_ids and candidate_tail_ids are required for "
                     f"candidate-level loss mode {self.loss_mode}"
                 )
-            cand_scores, cand_labels, cand_query_ids = \
-                self._aggregate_candidates(scores, labels, query_ids,
-                                            candidate_tail_ids)
+            (cand_scores, cand_labels, cand_query_ids,
+             cand_has_path) = self._aggregate_candidates(
+                scores, labels, query_ids, candidate_tail_ids,
+                has_path=path_keep)
+            cand_keep = (cand_has_path if cand_has_path is not None
+                         else torch.ones_like(cand_labels, dtype=torch.bool))
 
             if self.loss_mode == "binary_candidate":
-                return self.criterion(cand_scores, cand_labels)
+                if not bool(cand_keep.any()):
+                    return cand_scores.sum() * 0.0
+                return self.criterion(cand_scores[cand_keep],
+                                      cand_labels[cand_keep])
 
             # Group candidates by query over the batch.
             from collections import defaultdict
@@ -1146,8 +1181,9 @@ class PAMR(nn.Module):
                         idxs, device=cand_scores.device, dtype=torch.long)
                     group_scores = cand_scores[gather]
                     group_labels = cand_labels[gather]
-                    pos_mask = group_labels == 1
-                    neg_mask = group_labels == 0
+                    group_keep = cand_keep[gather]
+                    pos_mask = (group_labels == 1) & group_keep
+                    neg_mask = (group_labels == 0) & group_keep
                     if not pos_mask.any() or not neg_mask.any():
                         continue
                     pos_scores = group_scores[pos_mask].unsqueeze(1)
@@ -1164,18 +1200,22 @@ class PAMR(nn.Module):
             # with several positive candidates are fully optimized. The
             # temperature divides the candidate scores before the softmax
             # (1.0 = raw scores; smaller values sharpen the distribution).
+            # Pathless candidates are removed from the distribution.
             losses = []
             for qid, idxs in query_groups.items():
                 gather = torch.tensor(
                     idxs, device=cand_scores.device, dtype=torch.long)
                 group_scores = cand_scores[gather]
                 group_labels = cand_labels[gather]
+                group_keep = cand_keep[gather]
                 pos_positions = torch.nonzero(
-                    group_labels == 1, as_tuple=False)
+                    (group_labels == 1) & group_keep, as_tuple=False)
                 if pos_positions.numel() == 0:
                     continue
+                masked_scores = group_scores.masked_fill(
+                    ~group_keep, float("-inf"))
                 log_probs = F.log_softmax(
-                    group_scores / self.lf_temperature, dim=0)
+                    masked_scores / self.lf_temperature, dim=0)
                 losses.append(-log_probs[pos_positions.reshape(-1)].mean())
             if not losses:
                 return zero
@@ -1190,9 +1230,12 @@ class PAMR(nn.Module):
                     "query_ids and candidate_tail_ids are required for "
                     "candidate-level loss mode reconstruction"
                 )
-            cand_scores, cand_labels, cand_query_ids = \
-                self._aggregate_candidates(scores, labels, query_ids,
-                                            candidate_tail_ids)
+            (cand_scores, cand_labels, cand_query_ids,
+             cand_has_path) = self._aggregate_candidates(
+                scores, labels, query_ids, candidate_tail_ids,
+                has_path=path_keep)
+            cand_keep = (cand_has_path if cand_has_path is not None
+                         else torch.ones_like(cand_labels, dtype=torch.bool))
             from collections import defaultdict
             query_groups = defaultdict(list)
             for i in range(cand_scores.shape[0]):
@@ -1203,8 +1246,9 @@ class PAMR(nn.Module):
                     idxs, device=cand_scores.device, dtype=torch.long)
                 group_scores = cand_scores[gather]
                 group_labels = cand_labels[gather]
-                pos_mask = group_labels == 1
-                neg_mask = group_labels == 0
+                group_keep = cand_keep[gather]
+                pos_mask = (group_labels == 1) & group_keep
+                neg_mask = (group_labels == 0) & group_keep
                 if not pos_mask.any() or not neg_mask.any():
                     continue
                 pos_scores = group_scores[pos_mask].unsqueeze(1)

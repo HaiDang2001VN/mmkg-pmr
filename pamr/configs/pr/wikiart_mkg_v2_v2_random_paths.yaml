@@ -1,0 +1,25 @@
+# Journal v2 — path extraction for the random-K10 training arm (prod K=5)
+#
+# Consumes the v2 training queries (train K=10) plus the byte-identical
+# val/test query copies assembled by the artifact job.
+graph_csv: ../data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+prepare_config: configs/eval/wikiart_mkg_v2_v2_random.yaml
+
+max_hops: 5
+max_fanout: 100
+decay_factor: 0.5
+
+path_graph:
+  mask_query_edges: true
+  allow_target_relation_traversal: true
+
+num_threads: 10
+
+cpp_source: pamr/models/pr/preprocess.cpp
+binary_path: pamr/models/pr/preprocess.o
+compile_flags: "-std=c++23 -O3 -pthread"
+
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2_v2/random/
+keep_temp: false
+
+seed: 42

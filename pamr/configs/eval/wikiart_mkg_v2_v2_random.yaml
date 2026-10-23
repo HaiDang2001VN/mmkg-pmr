@@ -1,0 +1,43 @@
+# Journal v2 — training queries with K=10 negatives (random sampling)
+#
+# Only the train split is regenerated; val/test stay byte-identical to the
+# fresh v1 protocol (they are copied into the v2 queries dir by the
+# artifact job). Same pools/filters/seed as the evaluation protocol.
+dataset: wikiart_mkg_v2
+data_path: ../data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2_v2/random/queries/
+
+negatives_per_query:
+  train: 10
+
+exclude_relations_eval:
+  - isRelatedToArtwork
+  - isRelatedToArtist
+
+inverse_relation_pairs:
+  isInfluencedBy: isInfluencedOn
+  isPupilOf: isTeacherOf
+
+symmetric_relations: []
+
+artist2artist_relations:
+  - isInfluencedBy
+  - isInfluencedOn
+  - isPupilOf
+  - isTeacherOf
+
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf
+
+use_per_relation_candidates: true
+
+sampling_method: rejection
+sample_fraction: 1.0
+
+seed: 42
