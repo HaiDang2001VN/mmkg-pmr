@@ -93,6 +93,11 @@ def main():
     no_mask["min_residual_std"] = None
     _dump(no_mask, out / "pamr_v2_campaign_no_mask.yaml")
 
+    no_feats = dict(campaign)
+    no_feats["use_path_features"] = False
+    no_feats["min_residual_std"] = None
+    _dump(no_feats, out / "pamr_v2_campaign_no_feats.yaml")
+
     hop3 = dict(campaign)
     hop3["paths_dir"] = str(arm_h3 / "paths")
     hop3["max_hops"] = 3

@@ -664,7 +664,7 @@ class PAMR(nn.Module):
                  causal=False, readout="cls", use_node_types=True,
                  loss_mode="binary",
                  fine_tune_backbone=False, lf_temperature=1.0,
-                 device=torch.device("cpu")):
+                 use_path_features=True, device=torch.device("cpu")):
         super().__init__()
         self.vlkge = vlkge_model
         self.max_tokens = max_tokens
@@ -767,6 +767,23 @@ class PAMR(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(d_model, 1),
         )
+        # Path-statistic residual head: pooled transformer representations
+        # cannot represent hop count or edge composition reliably (the mean
+        # over tokens is nearly length-invariant), so expose scalar path
+        # statistics directly. The final layer is zero-initialized to keep
+        # the frozen-backbone starting point.
+        self.use_path_features = bool(use_path_features)
+        self.num_relations_feat = int(num_relation_types or 0)
+        if self.use_path_features and self.num_relations_feat > 0:
+            feat_dim = 2 + 3 + self.num_relations_feat + 2
+            self.path_feat_mlp = nn.Sequential(
+                nn.Linear(feat_dim, d_model),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(d_model, 1),
+            )
+        else:
+            self.path_feat_mlp = None
         # Learnable per-relation residual assigned to probes whose BFS found
         # no path; zero-initialized so no-path probes also start at the VLKGE
         # baseline. Falls back to the single shared scalar when the relation
@@ -824,6 +841,9 @@ class PAMR(nn.Module):
         # frozen VLKGE score before any training step.
         nn.init.zeros_(self.readout_mlp[-1].weight)
         nn.init.zeros_(self.readout_mlp[-1].bias)
+        if self.path_feat_mlp is not None:
+            nn.init.zeros_(self.path_feat_mlp[-1].weight)
+            nn.init.zeros_(self.path_feat_mlp[-1].bias)
         for proj in [self.entity_proj, self.rel_proj]:
             if isinstance(proj, nn.Linear):
                 nn.init.xavier_uniform_(proj.weight)
@@ -1027,6 +1047,41 @@ class PAMR(nn.Module):
                 torch.tensor(cand_query_ids, dtype=torch.long,
                              device=scores.device), hp)
 
+    def _path_features(self, path_nodes, path_edges, path_directions,
+                       node_types, token_mask):
+        """Scalar path statistics for the residual head.
+
+        Features: normalized hop count, path-present flag, node-type
+        fractions (1/2/3), edge-type fractions (canonical relation IDs),
+        and direction fractions. Padded positions are excluded.
+        """
+        B, max_N = path_nodes.shape
+        device = path_nodes.device
+        n_nodes = ((~token_mask).sum(dim=1) - 1) // 2
+        n_nodes = n_nodes.clamp(min=0)
+        hops = (n_nodes - 1).clamp(min=0).float()
+        max_hops = max(1, self.pos_embedding.num_embeddings // 2 - 1)
+        n_den = n_nodes.clamp(min=1).float()
+        node_counts = torch.stack(
+            [(node_types == t).float().sum(dim=1) for t in (1, 2, 3)], dim=1)
+        max_E = max_N - 1
+        edge_valid = (torch.arange(max_E, device=device).unsqueeze(0)
+                      < (n_nodes - 1).clamp(min=0).unsqueeze(1)).float()
+        e_den = (n_nodes - 1).clamp(min=1).float().unsqueeze(1)
+        et = path_edges.clamp(min=0, max=self.num_relations_feat - 1)
+        onehot = F.one_hot(et, num_classes=self.num_relations_feat).float()
+        edge_counts = (onehot * edge_valid.unsqueeze(-1)).sum(dim=1)
+        dir0 = ((path_directions == 0).float() * edge_valid).sum(dim=1)
+        dir1 = ((path_directions == 1).float() * edge_valid).sum(dim=1)
+        return torch.cat([
+            (hops / max_hops).unsqueeze(1),
+            (n_nodes >= 2).float().unsqueeze(1),
+            node_counts / n_den.unsqueeze(1),
+            edge_counts / e_den,
+            (dir0 / e_den.squeeze(1)).unsqueeze(1),
+            (dir1 / e_den.squeeze(1)).unsqueeze(1),
+        ], dim=1)
+
     def forward(self, path_nodes, path_edges, path_directions, node_types,
                 query_rel_id, token_mask, candidate_tail_ids, probe_head_ids,
                 has_path):
@@ -1111,6 +1166,12 @@ class PAMR(nn.Module):
             )
             rep = self._readout_rep(out, sub_token_mask)
             path_residual = self.readout_mlp(rep).squeeze(-1)
+            if self.path_feat_mlp is not None:
+                feats = self._path_features(
+                    sub_path_nodes, sub_edges, sub_directions, sub_types,
+                    sub_token_mask)
+                path_residual = (path_residual
+                                 + self.path_feat_mlp(feats).squeeze(-1))
 
         hp_idx = torch.nonzero(hp, as_tuple=False).squeeze(1)
         scores[hp_idx] = scores[hp_idx] + path_residual

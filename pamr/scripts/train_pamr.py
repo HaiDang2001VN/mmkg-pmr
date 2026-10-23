@@ -488,6 +488,7 @@ def main():
         loss_mode=config.get("loss_mode", "binary"),
         fine_tune_backbone=config.get("fine_tune_backbone", False),
         lf_temperature=config.get("lf_temperature", 1.0),
+        use_path_features=config.get("use_path_features", True),
         device=device,
     )
     model.to(device)

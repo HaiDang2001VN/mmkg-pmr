@@ -110,7 +110,7 @@ run_one() {
 
 CONFIGS=""
 [ "$GROUP" = "A" ] && CONFIGS="campaign par finetune depth12"
-[ "$GROUP" = "B" ] && CONFIGS="cls lf_temp hop3 no_mask"
+[ "$GROUP" = "B" ] && CONFIGS="cls lf_temp hop3 no_mask no_feats"
 [ -n "$CONFIGS" ] || { echo "ACCEPTANCE v2camp BLOCKED — bad group"; exit 3; }
 
 for cfg in $CONFIGS; do
