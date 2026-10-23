@@ -81,6 +81,18 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 
 ### IN FLIGHT at compaction
 
+- **Phase 0 diagnostic (2026-10-23, job 79741) — CORRECTED ROOT CAUSE**:
+  the PAMR encoder collapse is **learned, not an evaluation bug**. A
+  manual SDPA reference encoder and the default `nn.TransformerEncoder`
+  agree to 6e-7 (fresh-init model: exact), the fast-path toggle changes
+  nothing, and a fresh PAMR produces varying outputs (cross-sample L2
+  61.9). The **trained** v1 encoder maps every valid position of every
+  sample to the same vector (per-position std 0.0; CLS bit-identical;
+  path-residual std 1.6e-6). Conclusion: the K=1 training signal (only
+  the 2 pathless negatives carry gradient) drove the encoder to a
+  constant. **No eval workaround is needed**; v1-fixed retrain (K=1 +
+  mask) should yield PAMR ≈ backbone, and v2 (K=10 + mask) is the
+  actual fix. A path-dependence gate is mandatory after training.
 - **Job 79444 (Phase D) — PASSED 2026-10-22T02:20:10Z** (11 steps,
   ALL-STEPS-DONE; verify-C clean: 0 scope violations, 0 own-edge
   violations, 0 probe defects, candidate identity 239 queries /
@@ -94,13 +106,22 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   | VLKGE-ComplEx | 0.5614 | 0.3724 | 0.6695 | 0.8117 |
   | PAMR (best ep1, val .8034) | 0.7215 | 0.5858 | 0.8159 | 0.9247 |
   | PAR (best ep3, val .7457) | 0.6564 | 0.4979 | 0.7699 | 0.8996 |
-  PAMR > its frozen TransE backbone on this protocol; PAR < PAMR
-  (structural-only backbone). Per-model metrics.json, pamr/par
-  training metrics + test_scores.csv landed; coverage 1.0.
-- **Phase E next**: submit after the register sync
-  (`sbatch -N1 --nodelist=gpu01,gpu02,gpu04 slurm/phase_e.sbatch`;
-  hardened clone fail-fast + 12G disk gate now active). Six runs
-  (seed1, finetune, depth12, cls, lf_temp, hop3), output-own dirs.
+  PAMR ≡ TransE + 20.6804·1[has_path] (control reproduces MRR to the
+  digit; 19 rank-changed queries = the 20 pathless test negatives).
+- **Phase E (79455) — PASSED**: seed1, finetune, depth12, cls, lf_temp,
+  hop3 all rc=0; hop3's .8044 is the same presence artifact at +53.96
+  (control-reproduced). Seeding/depth do not change the ranking (seed1
+  and depth12 identical to PAMR: 239/239 ranks).
+- **Journal plan v2 (approved 2026-10-23)**: K=10 + presence control +
+  pathless-probe masking; K=10 and K=100 co-primary; pilot random-K10
+  vs hard-K10 (top-10 of 100 sampled); 5 PAMR seeds (checkpoints only
+  seed42+PAR); v1-fixed = eval-only + 1-seed retrain; two fallback
+  rounds; stop only at a failed pilot gate after fallbacks and at
+  final aggregation. v1 diagnostics go in the appendix.
+- **Operational note**: the operational sbatch dir is
+  `/media02/hlhdang/projects/pamr/slurm/` (a COPY of the repo's
+  `src/slurm/`); changes must be rsynced to both. The 79455 phase E
+  ran the pre-hardening copy (no disk gate) — harmless, now synced.
 - **Static audit round 2 (2026-10-22, pre-start)**: found + fixed two
   latent correctness defects that the first Phase D run never reached:
   (a) evaluate.py could not resolve `prepare_config: configs/eval/…`
@@ -112,29 +133,28 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   hardened: clone_paths fail-fast + /media02 free-space gates
   (phaseD 8G, phaseE 12G), ranking per-relation lf NaN guard.
 
-### NEXT ACTIONS (strict order)
+### NEXT ACTIONS (strict order — journal v2, approved 2026-10-23)
 
-1. **DONE — 79444 PASSED** (2026-10-22T02:20:10Z; results + verify-C
-   evidence in the IN FLIGHT block above). PAMR/PAR artifacts verified
-   (coverage 1.0; dataset_build_timings present).
-2. **Phase E/G** (one GPU job): `sbatch -N1
-   --nodelist=gpu01,gpu02,gpu04 slurm/phase_e.sbatch` (~1.5–2h).
-   Runs seed1 + finetune + depth12 + cls + lf_temp (clone-before-run,
-   output-own dirs under `full/ablations/<name>/`) + hop3
-   (`_h3/pamr`). Watch the fine-tune run (trainable backbone memory).
-3. **Phase H + aggregation** (CPU jobs):
-   `sbatch slurm/…` or reuse the selftest runner pattern:
-   - `python scripts/phase_h_timings.py --prepared
-     /media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2
-     --out-dir assets/report` → timings.csv
-   - `python scripts/aggregate_campaign.py --mode fresh --prepared
-     /media02/hlhdang/projects/pamr/checkpoints/preproc/wikiart_mkg_v2
-     --out-dir assets/report` → result.csv + count.csv + average.csv
-     (test split, test-matched weights). Add val sheets if needed.
-   - Seed-mean presentation (PAMR n=2, ddof=1) = decision at that
-     moment (ask user only if the tradeoff is unclear).
-4. **Register sync + mirror** after every milestone; comprehensive
-   report with checkpoint links after every iteration.
+1. **Phase 0 remaining**: parity test (default vs manual encoder) +
+   path-dependence gate (residual std after training; config
+   `min_residual_std`); v1-fixed eval-only on existing checkpoints;
+   v1-fixed retrain (K=1, mask, 1 seed).
+2. **Phase 1 artifacts**: v2-random train K=10 (prepare + paths prod/h3,
+   val/test byte-identical); v2-hard (top-10 of 100 sampled pool
+   candidates); K=100 val/test queries + paths + baseline score chains.
+3. **Phase 2 code**: masked candidate-level loss (`compute_loss(...,
+   has_path)`), `--seed`, in-run K=100 test eval (`extra_tests`),
+   external evaluator, presence-control + path-conditional scripts,
+   stats/bootstrap, v2 configs, chained sbatch (pilot + campaign with a
+   gate sentinel).
+4. **Phase 3 pilot**: {random,hard} × {grouped_pairwise,listwise};
+   gate = residual path-dependence + all-path MRR > backbone AND >
+   presence control (bootstrap CI excluding 0). Fail → 2 rounds → stop.
+5. **Phase 4 campaign**: 5 seeds × {PAMR, PAR, finetune, depth12, cls,
+   lf_temp, hop3, no_mask}; v1-fixed; loser arm single-seed; K=10 +
+   K=100; aggregation/stats.
+6. **Phase 5**: journal tables/figures, methods, appendix, register
+   sync + mirror after every milestone.
 
 ### Hard operating rules (from mistakes)
 
@@ -147,6 +167,8 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 - `--nodelist` requires `-N1`; avoid gpu03 when its free RAM is low
   (co-tenant jobs); ALWAYS explicit `--time` (DefaultTime 6h).
 - Diagnose `reports/<job>.out/.err` before any resubmit.
+- Sync sbatch changes to BOTH `/media02/hlhdang/projects/pamr/slurm/`
+  (operational) and `.../pamr/src/slurm/` (repo mirror).
 
 ---
 
@@ -332,6 +354,14 @@ four evaluate chains ALL-OK in 26 s. 79444 picked up the fixes at
 start and PASSED all 11 steps at 02:20:10Z (see §0 for the results
 table and verify-C evidence).
 
+### Phase 0 — journal v2 diagnosis (2026-10-23)
+Encoder probe 79741: default `nn.TransformerEncoder` and a manual SDPA
+reference agree to 6e-7 (fresh model: exact), fast-path toggle inert;
+fresh PAMR output varies (cross-sample L2 61.9) while the trained v1
+encoder is constant at every position/sample (residual std 1.6e-6).
+The collapse is learned from the K=1 presence shortcut, not an eval
+bug. See §0 for the corrected root cause and the v2 plan.
+
 ---
 
 ## 3. Remaining program (exact commands)
@@ -464,6 +494,7 @@ table and verify-C evidence).
 | clone_paths masked cp failures | cd5ceee | trailing `echo` returned rc=0; `|| return 1` + fail-fast |
 | Disk pre-flight missing | cd5ceee | phaseD gate 8G / phaseE gate 12G on /media02 (PAMR ckpts ≈1.3–1.5 GB each) |
 | ranking per-rel lf NaN | e891aa7 | relation with zero lf ranks emitted nan→NaN JSON; lf fields now skipped for that relation (strict metrics unaffected) |
+| PAMR encoder collapse (v1) | diagnosed 79741 | **learned, not an eval bug**: default encoder == manual SDPA reference (6e-7), fresh model varies (L2 61.9), trained model constant (std 1.6e-6); K=1 presence shortcut drove the collapse. Fix = K=10 + pathless-probe masking + residual-variance gate |
 | Harness CUDA tolerance gaps | 1e-4 contract + per-rel checks honor tol | GPU fp-tie determinism documented |
 | Known-swap CSVs (June) | untrusted | fresh regeneration authoritative |
 
