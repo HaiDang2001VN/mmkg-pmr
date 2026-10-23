@@ -132,8 +132,13 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   control. Remask 79763 COMPLETE: all splits re-extracted and verified
   with 0 own-pair violations; new hops: train pos/neg mean 2.39/3.17,
   test pos/neg 3.60/4.61 (19/20 pathless negatives). Pilot round 2 =
-  job 79766. If it fails, stop for the architecture-vs-analysis decision
-  (Q8).
+  job 79766. **FAILED all four arms**: all-path MRR = 0.7295 (exactly
+  backbone and presence control) while the length heuristic scores
+  0.8245 (bootstrap −0.095, CI [−0.143,−0.046]); residual std only
+  0.016–0.064 around a huge constant. The mean-pooled readout is
+  effectively length-invariant, so the model cannot learn even the
+  strongest path signal. **Decision point (Q8): architecture vs
+  analysis paper.**
 - **K=100 protocol is "up to 100"**: the artist split-local pools hold
   fewer than 100 eligible candidates for every query, so `prepare` now
   supports `allow_variable_negatives: true`; actual negatives are
