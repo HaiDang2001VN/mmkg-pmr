@@ -81,18 +81,21 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
 
 ### IN FLIGHT at compaction
 
-- **Phase 0 diagnostic (2026-10-23, job 79741) — CORRECTED ROOT CAUSE**:
-  the PAMR encoder collapse is **learned, not an evaluation bug**. A
-  manual SDPA reference encoder and the default `nn.TransformerEncoder`
-  agree to 6e-7 (fresh-init model: exact), the fast-path toggle changes
-  nothing, and a fresh PAMR produces varying outputs (cross-sample L2
-  61.9). The **trained** v1 encoder maps every valid position of every
-  sample to the same vector (per-position std 0.0; CLS bit-identical;
-  path-residual std 1.6e-6). Conclusion: the K=1 training signal (only
-  the 2 pathless negatives carry gradient) drove the encoder to a
-  constant. **No eval workaround is needed**; v1-fixed retrain (K=1 +
-  mask) should yield PAMR ≈ backbone, and v2 (K=10 + mask) is the
-  actual fix. A path-dependence gate is mandatory after training.
+- **Phase 0 diagnostic (2026-10-23; encoder probe 79741, parity
+  79756) — TWO DEFECTS CONFIRMED**:
+  (1) **torch 2.5.1's MHA fast path is wrong** in eval with a padding
+  mask: the default encoder differs from a dense SDPA reference by
+  max_abs **3.01** on random weights; setting
+  `torch.backends.mha.set_fastpath_enabled(False)` makes it exact
+  (0.0). The nested-tensor toggle is irrelevant. Fixed globally in
+  `pamr/models/pr/pamr.py` and enforced by the parity gate.
+  (2) The **dense** v1 encoder is also degenerate (manual/dense output
+  constant, residual std 1.6e-6): the K=1 pairing leaves 699/709 pairs
+  already satisfied, so only the 2 pathless negatives carry gradient
+  and the model learns a constant. Fixed by K=10 training + pathless
+  masking, with the path-dependence gate after training.
+  The earlier probe's "default == manual" was a coincidence: both
+  outputs were constant.
 - **Job 79444 (Phase D) — PASSED 2026-10-22T02:20:10Z** (11 steps,
   ALL-STEPS-DONE; verify-C clean: 0 scope violations, 0 own-edge
   violations, 0 probe defects, candidate identity 239 queries /
@@ -355,12 +358,12 @@ start and PASSED all 11 steps at 02:20:10Z (see §0 for the results
 table and verify-C evidence).
 
 ### Phase 0 — journal v2 diagnosis (2026-10-23)
-Encoder probe 79741: default `nn.TransformerEncoder` and a manual SDPA
-reference agree to 6e-7 (fresh model: exact), fast-path toggle inert;
-fresh PAMR output varies (cross-sample L2 61.9) while the trained v1
-encoder is constant at every position/sample (residual std 1.6e-6).
-The collapse is learned from the K=1 presence shortcut, not an eval
-bug. See §0 for the corrected root cause and the v2 plan.
+Encoder probe 79741 and parity 79756: the torch 2.5.1 MHA fast path is
+wrong in eval with padding masks (default vs dense SDPA max_abs 3.01;
+0.0 after disabling) → fixed globally in `pamr.py` + parity gate.
+Independently, the dense v1 encoder is degenerate (constant output,
+residual std 1.6e-6) because the K=1 pairs are 98.6% satisfied → fixed
+by K=10 + pathless masking. Both fixes are required.
 
 ---
 
@@ -494,7 +497,8 @@ bug. See §0 for the corrected root cause and the v2 plan.
 | clone_paths masked cp failures | cd5ceee | trailing `echo` returned rc=0; `|| return 1` + fail-fast |
 | Disk pre-flight missing | cd5ceee | phaseD gate 8G / phaseE gate 12G on /media02 (PAMR ckpts ≈1.3–1.5 GB each) |
 | ranking per-rel lf NaN | e891aa7 | relation with zero lf ranks emitted nan→NaN JSON; lf fields now skipped for that relation (strict metrics unaffected) |
-| PAMR encoder collapse (v1) | diagnosed 79741 | **learned, not an eval bug**: default encoder == manual SDPA reference (6e-7), fresh model varies (L2 61.9), trained model constant (std 1.6e-6); K=1 presence shortcut drove the collapse. Fix = K=10 + pathless-probe masking + residual-variance gate |
+| MHA fast path (torch 2.5.1) | 515c3b1 | eval-mode padding-mask output wrong (max_abs 3.01 vs dense; 0.0 when disabled); global disable + parity gate |
+| PAMR encoder collapse (v1) | K=10 + mask | dense v1 encoder constant (residual std 1.6e-6) because the K=1 pairs are 98.6% satisfied; fix = K=10 + pathless masking + path-dependence gate |
 | Harness CUDA tolerance gaps | 1e-4 contract + per-rel checks honor tol | GPU fp-tie determinism documented |
 | Known-swap CSVs (June) | untrusted | fresh regeneration authoritative |
 
