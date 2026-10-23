@@ -147,6 +147,14 @@ def main():
             "complement": _metrics(frame[frame["query_id"].isin(comp_ids)]),
         },
     }
+    length = frame.copy()
+    length["score"] = np.where(length["has_path"],
+                               -length["hops"].astype(float), -1e6)
+    report["length_only"] = {
+        "full": _metrics(length),
+        "all_path": _metrics(length[length["query_id"].isin(ap_ids)]),
+        "complement": _metrics(length[length["query_id"].isin(comp_ids)]),
+    }
     if args.backbone_scores is not None:
         backbone = frame.copy()
         backbone["score"] = frame["backbone_score"]
@@ -165,8 +173,10 @@ def main():
         model_r = _recip_ranks(frame, ap_ids)
         ctrl_r = _recip_ranks(ctrl, ap_ids)
         bb_r = _recip_ranks(backbone, ap_ids)
+        len_r = _recip_ranks(length, ap_ids)
         report["bootstrap_all_path_vs_backbone"] = _bootstrap(model_r, bb_r)
         report["bootstrap_all_path_vs_control"] = _bootstrap(model_r, ctrl_r)
+        report["bootstrap_all_path_vs_length"] = _bootstrap(model_r, len_r)
     print("ACCEPTANCE path-subset-control " + json.dumps(report))
     if args.out:
         with open(args.out, "w") as f:
