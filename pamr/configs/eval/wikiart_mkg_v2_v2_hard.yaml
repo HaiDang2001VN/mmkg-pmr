@@ -1,0 +1,43 @@
+# Journal v2 — hard-negative arm query location
+#
+# The miner writes train_queries.csv here and the artifact job copies the
+# byte-identical val/test queries. This file is consumed by preprocess.py
+# (prepare_config -> output_dir); it must NOT be run with prepare.py.
+dataset: wikiart_mkg_v2
+data_path: ../data/wikiart_mkg_v2/wikiart_mkg_v2_triples.csv
+
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2_v2/hard/queries/
+
+negatives_per_query:
+  train: 10
+
+exclude_relations_eval:
+  - isRelatedToArtwork
+  - isRelatedToArtist
+
+inverse_relation_pairs:
+  isInfluencedBy: isInfluencedOn
+  isPupilOf: isTeacherOf
+
+symmetric_relations: []
+
+artist2artist_relations:
+  - isInfluencedBy
+  - isInfluencedOn
+  - isPupilOf
+  - isTeacherOf
+
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf
+
+use_per_relation_candidates: true
+
+sampling_method: rejection
+sample_fraction: 1.0
+
+seed: 42

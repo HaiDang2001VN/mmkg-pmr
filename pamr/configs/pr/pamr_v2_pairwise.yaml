@@ -1,0 +1,47 @@
+# Journal v2 — pairwise training config (pilot/campaign base)
+#
+# paths_dir/queries_dir are deployment defaults; the pilot/campaign jobs
+# override them per run with --paths-dir / --queries-dir. Training uses the
+# K=10 random arm by default (hard arm paths are supplied at runtime).
+num_layers: 8
+num_heads: 8
+dim_feedforward: 2048
+dropout: 0.1
+causal: false
+readout: average
+use_node_types: true
+
+vlkge_config: ../wikiart_mkg_v2/transe_clip.yaml
+vlkge_checkpoint: ../checkpoints/vlkge/wikiart_mkg_v2/transe_wikiart_mkg_v2_train.pt
+vlkge_scope: train
+
+paths_dir: ../checkpoints/preproc/wikiart_mkg_v2_v2/random/paths/
+queries_dir: ../checkpoints/preproc/wikiart_mkg_v2_v2/random/queries/
+max_hops: 5
+max_tokens: 13
+
+loss_mode: grouped_pairwise
+min_eval_coverage: 0.95
+patience: 5
+group_batches: true
+lf_no_path_policy: exclude
+batch_size: 32
+eval_batch_size: 1024
+lr: 0.01
+epochs: 50
+eval_every: 1
+eval_max_batches: 999999
+
+relation_filter:
+  mode: train_eval
+  relations:
+    - isInfluencedBy
+    - isInfluencedOn
+    - isPupilOf
+    - isTeacherOf
+
+log_metrics: true
+save_checkpoint: false
+weight_decay: 0.01
+seed: 42
+min_residual_std: null

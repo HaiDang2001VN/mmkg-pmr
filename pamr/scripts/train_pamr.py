@@ -102,6 +102,12 @@ def parse_args():
                         help="DataLoader worker processes (default: 4 on GPU, 0 on CPU)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Override the config seed")
+    parser.add_argument("--paths-dir", type=str, default=None,
+                        help="Override paths_dir (output-own run directory)")
+    parser.add_argument("--queries-dir", type=str, default=None,
+                        help="Override queries_dir")
+    parser.add_argument("--save-checkpoint", action="store_true", default=None,
+                        help="Force save_checkpoint=true for this run")
     return parser.parse_args()
 
 
@@ -128,6 +134,15 @@ def main():
     if args.seed is not None:
         config["seed"] = int(args.seed)
         print(f"Seed override: {args.seed}")
+    if args.paths_dir is not None:
+        config["paths_dir"] = args.paths_dir
+        print(f"paths_dir override: {args.paths_dir}")
+    if args.queries_dir is not None:
+        config["queries_dir"] = args.queries_dir
+        print(f"queries_dir override: {args.queries_dir}")
+    if args.save_checkpoint:
+        config["save_checkpoint"] = True
+        print("save_checkpoint forced on")
 
     seed = config.get("seed", 42)
     utils.set_seed(seed)
