@@ -219,7 +219,9 @@ def main():
                 "path_graph section to disclose transductive diagnostics"
             )
 
-    # Per-probe query-edge masking. Own relations (the query relation and its
+    # Per-probe direct-pair masking: EVERY edge between the probe's head and
+    # tail (any relation, both orientations) is masked.
+    # Original note: own relations (the query relation and its
     # registry inverse, between the probe's head and tail) are masked in
     # every split, matching the scope behaviour val/test already get. The
     # target-traversal rule is one uniform flag for all splits: when false,

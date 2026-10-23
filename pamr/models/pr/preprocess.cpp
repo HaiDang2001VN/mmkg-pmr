@@ -19,11 +19,11 @@
 // place from chunked reads with from_chars (no stringstream, no per-line
 // string allocations).
 //
-// Behaviour preserved from v1: per-probe own-edge masking (query relation +
-// registry inverse between head and tail, both orientations) and the
-// uniform target-traversal deny rule; a probe whose own edge exists runs a
-// fully masked per-probe bidirectional search; the shared forward tree per
-// query is built WITHOUT the own-edge mask (cross-probe facts are
+// Behaviour: per-probe masking of EVERY direct edge between the query head
+// and tail (any relation, both orientations) and the uniform target-
+// traversal deny rule; a probe with any such direct edge runs a fully
+// masked per-probe bidirectional search; the shared forward tree per query
+// is built WITHOUT the mask (cross-probe facts are
 // legitimately traversable at eval time); backward expansion continues
 // level-by-level within the depth bound so a drained frontier no longer
 // forces hops=-1.
@@ -503,11 +503,9 @@ static void bfs_levels(const Graph &g, Arena &a, int32_t root, int max_hops,
                 const PackedEdge &e = g.edges[ei];
                 if (a.visited(e.v)) continue;
                 if (mask_own_edges) {
-                    const int32_t et = e.e_type;
-                    if ((et == probe.rel_id || et == probe.inv_rel_id)
-                            && ((u == probe.head_id && e.v == probe.tail_id)
-                                || (u == probe.tail_id
-                                    && e.v == probe.head_id))) {
+                    if ((u == probe.head_id && e.v == probe.tail_id)
+                            || (u == probe.tail_id
+                                && e.v == probe.head_id)) {
                         continue;
                     }
                 }
@@ -539,12 +537,11 @@ static void bfs_levels(const Graph &g, Arena &a, int32_t root, int max_hops,
     }
 }
 
-// Whether an own edge exists between head and tail. When it does not, the
-// mask can never fire for this probe and the shared forward tree is valid
+// Whether any direct edge exists between head and tail (any relation). When
+// none exists, the mask can never fire and the shared forward tree is valid
 // as-is. Slices are sorted by neighbour id, so the candidate span is found
 // by binary search.
 static bool has_own_edge(const Graph &g, const Query &q) {
-    if (q.rel_id < 0 && q.inv_rel_id < 0) return false;
     auto side_has = [&](int32_t u, int32_t w) {
         if (u >= g.n) return false;
         int64_t eb, ee;
@@ -557,8 +554,7 @@ static bool has_own_edge(const Graph &g, const Query &q) {
         for (int64_t ei = lo; ei < ee; ++ei) {
             const PackedEdge &e = g.edges[ei];
             if (e.v > w) break;
-            if (e.v == w && (e.e_type == q.rel_id
-                             || e.e_type == q.inv_rel_id)) {
+            if (e.v == w) {
                 return true;
             }
         }

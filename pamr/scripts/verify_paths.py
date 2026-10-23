@@ -9,11 +9,8 @@ A. Scope hygiene — the split-scoped path graph of a split may not contain
    each row against the excluded facts of the raw triples CSV, in both
    orientations and for the query relation or its registry inverse.
 
-B. Own-edge masking — no emitted path may use the probe's own edge (the
-   query relation or its registry inverse between head and tail) in ANY
-   split. A train positive whose own edge exists in the graph must
-   therefore emit either no path or a path that avoids the own pair as a
-   consecutive hop.
+B. Own-pair masking — no emitted path may use ANY direct edge between the
+   probe's head and tail (any relation, both orientations) in ANY split.
 
 C. Candidate identity (optional) — when both score CSVs are supplied,
    PAMR and VL-KGE must have scored exactly the same rows: same query
@@ -246,9 +243,6 @@ def check_own_edge_and_completeness(run_dir, split, failures,
                     f"own_edge[{split}]: paths row_index {ri} unknown")
                 continue
             h, t, qr, iqr = meta
-            own_rels = {qr}
-            if iqr is not None and iqr >= 0:
-                own_rels.add(iqr)
             try:
                 hops = int(float(row.hops))
             except (ValueError, TypeError):
@@ -266,12 +260,12 @@ def check_own_edge_and_completeness(run_dir, split, failures,
                 continue
             for i in range(hops):
                 pair = frozenset((nodes[i], nodes[i + 1]))
-                if pair == frozenset((h, t)) and etypes[i] in own_rels:
+                if pair == frozenset((h, t)):
                     own_violations.append((ri, i))
                     if len(own_violations) <= 20:
                         failures.append(
-                            f"own_edge[{split}]: probe ri={ri} uses its own "
-                            f"edge at hop {i} "
+                            f"own_edge[{split}]: probe ri={ri} uses a direct "
+                            f"head-tail edge at hop {i} "
                             f"(edge_type={etypes[i]})")
     counts_out["probes"] = n_probes
     counts_out["found"] = n_found
@@ -287,7 +281,7 @@ def check_own_edge_and_completeness(run_dir, split, failures,
             f"completeness[{split}]: {len(missing):,} probes missing from "
             f"paths CSV (sample {missing[:5]})")
     print(f"  own_edge[{split}]: probes={n_probes:,} found={n_found:,} "
-          f"own-edge violations={len(own_violations):,} "
+          f"own-pair violations={len(own_violations):,} "
           f"duplicate/missing probes={len(duplicate) + len(missing):,}")
 
 
