@@ -30,6 +30,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
+# torch 2.5.1's multi-head-attention fast path returns incorrect eval-mode
+# outputs when a padding mask is supplied (verified against a dense SDPA
+# reference: max_abs 3.01; zero after disabling). The dense path is cheap at
+# PAMR's sequence lengths (<20 tokens) and keeps evaluation deterministic.
+try:
+    torch.backends.mha.set_fastpath_enabled(False)
+except Exception:
+    pass
+
 from pamr.dataloader import KnowledgeGraphDataLoader
 from pamr import helpers, utils
 

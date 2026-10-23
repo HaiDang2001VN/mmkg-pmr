@@ -58,7 +58,11 @@ def main():
     variants = {}
     with torch.no_grad():
         man = manual_encoder(enc, x, mask)
-        variants["default"] = enc(x, src_key_padding_mask=mask)
+        torch.backends.mha.set_fastpath_enabled(True)
+        variants["fastpath_on"] = enc(x, src_key_padding_mask=mask)
+        torch.backends.mha.set_fastpath_enabled(False)
+        variants["production_fastpath_off"] = enc(
+            x, src_key_padding_mask=mask)
 
         enc.enable_nested_tensor = False
         variants["no_nested"] = enc(x, src_key_padding_mask=mask)
