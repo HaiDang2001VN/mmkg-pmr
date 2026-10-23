@@ -318,6 +318,7 @@ def main():
 
     fine_tune_backbone = bool(config.get("fine_tune_backbone", False))
     lf_temperature = config.get("lf_temperature", 1.0)
+    loss_mask = bool(config.get("loss_mask", True))
 
     # Freeze all VLKGE params unless the fine-tune ablation is active. In
     # fine-tune mode the params frozen inside the backbone itself
@@ -587,9 +588,9 @@ def main():
             scores = model(path_nodes, path_edges, path_directions, node_types,
                            query_rel_ids, token_mask, candidate_tail_ids,
                            probe_head_ids, batch_has_path)
-            loss = model.compute_loss(scores, is_positives, query_ids,
-                                       candidate_tail_ids,
-                                       has_path=batch_has_path)
+            loss = model.compute_loss(
+                scores, is_positives, query_ids, candidate_tail_ids,
+                has_path=batch_has_path if loss_mask else None)
             loss.backward()
             optimizer.step()
 
@@ -659,7 +660,7 @@ def main():
                                    batch_has_path)
                     loss = model.compute_loss(
                         scores, is_positives, query_ids, candidate_tail_ids,
-                        has_path=batch_has_path)
+                        has_path=batch_has_path if loss_mask else None)
                     val_loss_sum += loss.item()
                     val_batches += 1
 

@@ -129,8 +129,11 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   **length-only** heuristic (-hops) scores **all-path MRR 0.8245** vs
   the backbone's 0.7295 (full 0.8290). The pilot gate now requires
   beating the length heuristic as well as the backbone and presence
-  control. If round 2 fails, stop for the architecture-vs-analysis
-  decision (Q8).
+  control. Remask 79763 COMPLETE: all splits re-extracted and verified
+  with 0 own-pair violations; new hops: train pos/neg mean 2.39/3.17,
+  test pos/neg 3.60/4.61 (19/20 pathless negatives). Pilot round 2 =
+  job 79766. If it fails, stop for the architecture-vs-analysis decision
+  (Q8).
 - **K=100 protocol is "up to 100"**: the artist split-local pools hold
   fewer than 100 eligible candidates for every query, so `prepare` now
   supports `allow_variable_negatives: true`; actual negatives are
