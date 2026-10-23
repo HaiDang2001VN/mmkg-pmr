@@ -999,6 +999,93 @@ def main():
             test_metrics["gpu_allocated_mb"] = round(test_gpu_alloc, 2)
             test_metrics["gpu_reserved_mb"] = round(test_gpu_reserved, 2)
 
+    # ── 10b. Extra evaluation protocols (e.g. K=100 test) ───────────────
+    extra_test_metrics = {}
+    extra_cfgs = config.get("extra_tests") or []
+    if extra_cfgs and "test" in dataloaders:
+        id_to_relation_x = {rid: name for name, rid in relation_to_id.items()}
+        for extra in extra_cfgs:
+            extra_name = str(extra.get("name", "extra"))
+            eq_dir = extra.get("queries_dir")
+            ep_dir = extra.get("paths_dir")
+            if not eq_dir or not ep_dir:
+                print(f"  SKIP extra test {extra_name}: dirs missing")
+                continue
+            eq_dir = str(Path(eq_dir) if Path(eq_dir).is_absolute()
+                         else (REPO_ROOT / eq_dir).resolve())
+            ep_dir = str(Path(ep_dir) if Path(ep_dir).is_absolute()
+                         else (REPO_ROOT / ep_dir).resolve())
+            eq_csv = os.path.join(eq_dir, "test_queries.csv")
+            ep_csv = os.path.join(ep_dir, "test_paths.csv")
+            if not (os.path.exists(eq_csv) and os.path.exists(ep_csv)):
+                print(f"  SKIP extra test {extra_name}: missing CSVs")
+                continue
+            print(f"\n  EXTRA TEST [{extra_name}] queries={eq_dir}")
+            model.eval()
+            eds = PAMRDataset(
+                ep_csv, eq_csv, entity_to_id, relation_to_id,
+                max_hops=int(extra.get("max_hops", max_hops)),
+                relation_whitelist=wl_eval,
+                num_relations=dl.get_num_relations(),
+                registry_hash=relation_registry.registry_hash)
+            eloader = DataLoader(
+                eds, batch_size=eval_batch_size, shuffle=False,
+                collate_fn=pamr_collate, num_workers=num_workers,
+                pin_memory=(device.type == "cuda"))
+            e_scores, e_labels, e_qids, e_hops = [], [], [], []
+            e_cands, e_hp, e_res = [], [], []
+            with torch.no_grad():
+                for batch in eloader:
+                    (pn, pe, pdir, nt, qr, ip, qi, ct, ph, hops_b,
+                     hp_b, mask_b) = batch
+                    pn = pn.to(device)
+                    pe = pe.to(device)
+                    pdir = pdir.to(device)
+                    nt = nt.to(device)
+                    qr = qr.to(device)
+                    ct = ct.to(device)
+                    ph = ph.to(device)
+                    hp_b = hp_b.to(device)
+                    mask_b = mask_b.to(device)
+                    scores = model(pn, pe, pdir, nt, qr, mask_b, ct, ph, hp_b)
+                    e_scores.extend(scores.cpu().numpy().tolist())
+                    e_labels.extend(ip.numpy().tolist())
+                    e_qids.extend(qi.numpy().tolist())
+                    e_hops.extend(hops_b.numpy().tolist())
+                    e_cands.extend(ct.cpu().numpy().tolist())
+                    e_hp.extend(hp_b.cpu().numpy().tolist())
+                    vlk = model.vlkge(ph, qr, ct)
+                    e_res.extend(
+                        (scores - vlk.to(scores.dtype)).cpu().numpy().tolist())
+            e_rel_map = {}
+            for sample in eds.samples:
+                e_rel_map[sample["row_id"][0]] = id_to_relation_x.get(
+                    int(sample["query_rel_id"]), "")
+            em = compute_rank_metrics(
+                e_scores, e_labels, e_qids, top_k=[1, 3, 5, 10],
+                exclude_relations=exclude_from_pamr_eval, split="test",
+                all_hops=e_hops,
+                expected_queries=getattr(eds, "num_input_queries", None),
+                all_cand_ids=e_cands, rel_for_qid={"test": e_rel_map},
+                all_has_path=e_hp, lf_no_path_policy=lf_no_path_policy)
+            er = np.asarray(e_res, dtype=float)
+            eh = np.asarray(e_hp, dtype=bool)
+            em["residual_stats"] = {
+                "path_mean": float(er[eh].mean()) if eh.any() else 0.0,
+                "path_std": float(er[eh].std()) if eh.any() else 0.0,
+                "nopath_mean": float(er[~eh].mean()) if (~eh).any() else 0.0,
+            }
+            pd.DataFrame({
+                "query_id": e_qids, "candidate_tail_id": e_cands,
+                "score": e_scores, "is_positive": e_labels,
+            }).to_csv(os.path.join(paths_dir,
+                                  f"test_{extra_name}_scores.csv"),
+                      index=False)
+            extra_test_metrics[extra_name] = em
+            print(f"  [{extra_name}] queries={em['num_queries']} "
+                  f"MRR={em['MRR']:.4f} "
+                  f"residual_std={em['residual_stats']['path_std']:.6f}")
+
     # ── 11. Save checkpoint ──────────────────────────────────────────────
     if save_checkpoint_flag and best_state is not None:
         ckpt_dir = os.path.join(paths_dir, "pamr_checkpoints")
@@ -1044,6 +1131,7 @@ def main():
             "test": {
                 k: v for k, v in test_metrics.items()
             },
+            "extra_tests": extra_test_metrics,
         }
 
         metrics_path = os.path.join(paths_dir, "pamr_training_metrics.json")

@@ -54,6 +54,8 @@ for arm in random hard; do
 done
 echo "ACCEPTANCE v2pilot artifacts-ok"
 
+run parity uvpython -m scripts.test_pamr_encoder_parity
+
 clone_paths() {
   local src="$1" dst="$2"
   mkdir -p "$dst" || return 1

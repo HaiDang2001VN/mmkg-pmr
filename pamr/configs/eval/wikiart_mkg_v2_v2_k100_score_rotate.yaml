@@ -1,0 +1,7 @@
+# Journal v2 — K=100 baseline scoring (RotatE, train scope)
+prepare_config: configs/eval/wikiart_mkg_v2_v2_k100.yaml
+model_config: pamr/configs/wikiart_mkg_v2/rotate_clip.yaml
+output_dir: ../checkpoints/preproc/wikiart_mkg_v2_v2/k100/full/vlkge/RotatE/
+checkpoint_path: ../checkpoints/vlkge/wikiart_mkg_v2/rotate_wikiart_mkg_v2_train.pt
+batch_size: 2048
+seed: 42
