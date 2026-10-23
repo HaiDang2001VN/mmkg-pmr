@@ -124,8 +124,13 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   old own-edge mask (query relation + inverse only) did not remove.
   Round 2 (protocol v2.1, job 79763): mask **every** direct head-tail
   edge (any relation) and re-extract all paths (v1, random/hard, K100,
-  prod+h3) with the stricter verifier. If this round fails, stop for
-  the architecture-vs-analysis decision (Q8).
+  prod+h3) with the stricter verifier. After the fix the train/test
+  path-length distributions are aligned enough to transfer: a trivial
+  **length-only** heuristic (-hops) scores **all-path MRR 0.8245** vs
+  the backbone's 0.7295 (full 0.8290). The pilot gate now requires
+  beating the length heuristic as well as the backbone and presence
+  control. If round 2 fails, stop for the architecture-vs-analysis
+  decision (Q8).
 - **K=100 protocol is "up to 100"**: the artist split-local pools hold
   fewer than 100 eligible candidates for every query, so `prepare` now
   supports `allow_variable_negatives: true`; actual negatives are
