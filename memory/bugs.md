@@ -115,6 +115,17 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   hop3 all rc=0; hop3's .8044 is the same presence artifact at +53.96
   (control-reproduced). Seeding/depth do not change the ranking (seed1
   and depth12 identical to PAMR: 239/239 ranks).
+- **Pilot round 3 (79767) — path-statistic readout**: the feat head
+  (hops/has_path/node+edge-type fractions) lifts all-path strict MRR to
+  **0.766** (backbone 0.7295; hard arm worse, 0.7157; hard_lf cancelled).
+  The length heuristic's strict 0.8245 is a **tie artifact**: non-strict
+  0.6328 vs PAMR 0.7660 (both tie-free). **Metric policy: non-strict
+  (tie-aware) is primary; strict is reported alongside.** All-path
+  non-strict: PAMR vs backbone +0.0366 (CI −2.4e-5..0.0732, marginal);
+  vs length +0.1332 (CI 0.0977..0.1704). Decision: analysis paper with
+  non-strict primary; 5-seed campaign launched with random_lf
+  (79774 group A / 79775 group B) incl. no-feats and all ablations,
+  K=10 + K≤100.
 - **Pilot round 1 (79760) — FAILED all four arms**: random/hard ×
   pairwise/listwise all give all-path MRR == backbone == presence
   control (0.7295; bootstrap 0.0) with full MRR == 0.7215. Diagnosis:
