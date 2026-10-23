@@ -1,10 +1,12 @@
-"""Encoder parity gate: default nn.TransformerEncoder vs a manual SDPA loop.
+"""Encoder parity gate: default encoder vs a manual dense SDPA loop.
 
-Run on CPU. Exits 0 only when the two implementations agree within 1e-5 on
-realistic padding masks; this guards the evaluation path against future
-PyTorch fast-path regressions.
+Compares the default `nn.TransformerEncoder` against a manual dense
+reference under four configurations (nested tensor on/off, MHA fast path
+on/off) and reports each difference. Production requires a zero-diff
+configuration; the manual loop is the dense reference.
 """
 
+import json
 import sys
 
 import torch
@@ -26,12 +28,10 @@ def manual_encoder(encoder, src, key_padding_mask):
             return t.view(t.shape[0], t.shape[1], heads, head_dim).permute(0, 2, 1, 3)
 
         q, k, v = split(q), split(k), split(v)
-        am = None
-        if key_padding_mask is not None:
-            am = torch.zeros(key_padding_mask.shape[0], 1, 1,
-                             key_padding_mask.shape[1], device=x.device,
-                             dtype=x.dtype)
-            am = am.masked_fill(key_padding_mask[:, None, None, :], float("-inf"))
+        am = torch.zeros(key_padding_mask.shape[0], 1, 1,
+                         key_padding_mask.shape[1], device=x.device,
+                         dtype=x.dtype)
+        am = am.masked_fill(key_padding_mask[:, None, None, :], float("-inf"))
         attn = F.scaled_dot_product_attention(q, k, v, attn_mask=am)
         attn = attn.permute(0, 2, 1, 3).reshape(x.shape[0], x.shape[1], emb)
         attn = mha.out_proj(attn)
@@ -54,12 +54,39 @@ def main():
     mask[0, 5:] = True
     mask[2, 6:] = True
     mask[3, 3:] = True
+
+    variants = {}
     with torch.no_grad():
-        out = enc(x, src_key_padding_mask=mask)
         man = manual_encoder(enc, x, mask)
-    diff = float((out - man).abs().max())
-    print(f"ACCEPTANCE encoder-parity max_abs={diff:.8f}")
-    if diff > 1e-5:
+        variants["default"] = enc(x, src_key_padding_mask=mask)
+
+        enc.enable_nested_tensor = False
+        variants["no_nested"] = enc(x, src_key_padding_mask=mask)
+
+        try:
+            torch.backends.mha.set_fastpath_enabled(False)
+            variants["no_fastpath"] = enc(x, src_key_padding_mask=mask)
+            enc.enable_nested_tensor = True
+            variants["no_fastpath_default_nested"] = enc(
+                x, src_key_padding_mask=mask)
+        except Exception as exc:  # noqa: BLE001
+            variants["fastpath_error"] = str(exc)
+        finally:
+            try:
+                torch.backends.mha.set_fastpath_enabled(True)
+            except Exception:  # noqa: BLE001
+                pass
+
+    report = {}
+    for name, out in variants.items():
+        if torch.is_tensor(out):
+            report[name] = round(float((out - man).abs().max()), 8)
+        else:
+            report[name] = out
+    print("ACCEPTANCE encoder-parity " + json.dumps(report))
+    best = min((v for v in report.values() if isinstance(v, float)),
+               default=None)
+    if best is None or best > 1e-5:
         print("ACCEPTANCE encoder-parity FAILED")
         sys.exit(2)
     print("ACCEPTANCE encoder-parity PASSED")
