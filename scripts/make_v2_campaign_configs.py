@@ -37,6 +37,8 @@ def _with_extra(cfg, queries, paths, max_hops):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gate", required=True)
+    ap.add_argument("--label", default=None,
+                    help="Override the pilot-gate selected label")
     ap.add_argument("--v2-root", required=True)
     ap.add_argument("--v1-root", required=True)
     ap.add_argument("--out-dir", default=str(REPO_ROOT / "pamr" / "configs" / "pr"))
@@ -45,7 +47,7 @@ def main():
     with open(args.gate) as f:
         gate = json.load(f)
     selected = gate.get("selected") or {}
-    label = selected.get("label")
+    label = args.label or selected.get("label")
     if not label:
         raise SystemExit("pilot gate has no selected run")
     arm, loss = label.split("_")

@@ -51,16 +51,19 @@ if [ -z "$FREE_GB" ] || [ "$FREE_GB" -lt 10 ]; then
 fi
 echo "ACCEPTANCE v2camp disk-ok free=${FREE_GB}G"
 
-run gen-configs uvpython -m scripts.make_v2_campaign_configs \
-  --gate "$V2/pilot_gate.json" --v2-root "$V2" --v1-root "$PRE1"
-
-LABEL=$("$PY" - "$V2/pilot_gate.json" <<'PY'
+LABEL="${V2_LABEL:-}"
+if [ -z "$LABEL" ]; then
+  LABEL=$("$PY" - "$V2/pilot_gate.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 sel = d.get("selected") or {}
 print(sel.get("label", ""))
 PY
 )
+fi
+run gen-configs uvpython -m scripts.make_v2_campaign_configs \
+  --gate "$V2/pilot_gate.json" --v2-root "$V2" --v1-root "$PRE1" \
+  --label "$LABEL"
 [ -n "$LABEL" ] || { echo "ACCEPTANCE v2camp BLOCKED — no pilot selection"; exit 3; }
 ARM=${LABEL%_*}; LOSS=${LABEL#*_}
 LOSER_ARM=$([ "$ARM" = "random" ] && echo hard || echo random)
