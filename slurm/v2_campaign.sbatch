@@ -111,6 +111,22 @@ run_one() {
   fi
 }
 
+if [ "$GROUP" = "A" ]; then
+  for pair in "transe:TransE" "complex:ComplEx" "distmult:DistMult" "rotate:RotatE"; do
+    key=${pair%%:*}; label=${pair##*:}
+    run "subset-k10-$key" uvpython -m scripts.path_subset_control \
+      --queries "$V2/$ARM/queries/test_queries.csv" \
+      --paths "$V2/$ARM/paths/test_paths.csv" \
+      --scores "$PRE1/full/vlkge/$label/test_scores.csv" \
+      --out "$PRE1/full/vlkge/$label/path_control.json"
+    run "subset-k100-$key" uvpython -m scripts.path_subset_control \
+      --queries "$K100/queries/test_queries.csv" \
+      --paths "$K100/paths_prod/test_paths.csv" \
+      --scores "$K100/full/vlkge/$label/test_scores.csv" \
+      --out "$K100/full/vlkge/$label/path_control.json"
+  done
+fi
+
 CONFIGS=""
 [ "$GROUP" = "A" ] && CONFIGS="campaign par finetune depth12"
 [ "$GROUP" = "B" ] && CONFIGS="cls lf_temp hop3 no_mask no_feats"
