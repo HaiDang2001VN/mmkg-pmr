@@ -155,6 +155,20 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   supports `allow_variable_negatives: true`; actual negatives are
   19–61 per query (val median 50, test median 45). This is the
   co-primary harder protocol (documented; not a bug).
+- **Automated journal chain submitted (2026-10-24, user away)**:
+  - 79850 `v2_lenonly` (GPU): length-only feat ablation, 5 PAMR seeds.
+  - 79851 `v2_analysis` (CPU, afterok:79850): logistic + aggregate +
+    stats CIs (1-seed baselines) + figures + tables + runtime +
+    verify → **reports/checkpoint_J1.md**.
+  - 79852 `v2_seed_job 1` / 79853 `v2_seed_job 2` (GPU, 48 h each):
+    TransE→ComplEx→DistMult→RotatE sequentially; slims
+    `<model>_train_s{1,2}.pt`.
+  - 79854 `v2_backbone_rescore` (GPU, afterok:79852:79853): K10/K≤100
+    score/eval + path controls for the 8 new checkpoints.
+  - 79855 `v2_j2` (CPU, afterok:79854): 3-seed baseline aggregation,
+    stats, figures, tables, verify → **reports/checkpoint_J2.md**.
+  Expected: J1 ~1.5–2 h after start; J2 ~28–31 h. No await loops; the
+  agent resumes at J2. Report tables under `assets/report_v2/`.
 - **Campaign v2 COMPLETE (79774 A / 79775 B, 2026-10-24)**:
   random_lf, 5 seeds, K=10 + K≤100, feat/no-feat, all ablations,
   v1-fixed and loser-arm diagnostics. Test non-strict MRR (= strict;
