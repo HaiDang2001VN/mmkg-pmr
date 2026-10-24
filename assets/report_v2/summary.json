@@ -1,0 +1,10 @@
+{
+  "k10": {
+    "rows": 7,
+    "ablations": 6
+  },
+  "k100": {
+    "rows": 7,
+    "ablations": 6
+  }
+}

@@ -155,6 +155,29 @@ Context files: `pamr/models/pr/pamr.py`, `pamr/scripts/train_pamr.py`,
   supports `allow_variable_negatives: true`; actual negatives are
   19–61 per query (val median 50, test median 45). This is the
   co-primary harder protocol (documented; not a bug).
+- **Campaign v2 COMPLETE (79774 A / 79775 B, 2026-10-24)**:
+  random_lf, 5 seeds, K=10 + K≤100, feat/no-feat, all ablations,
+  v1-fixed and loser-arm diagnostics. Test non-strict MRR (= strict;
+  model scores are tie-free):
+  | method | K=10 | std | K=100 | std |
+  |---|---|---|---|---|
+  | TransE | .7006 | — | .4508 | — |
+  | RotatE | .6171 | — | .3790 | — |
+  | DistMult | .5948 | — | .3484 | — |
+  | ComplEx | .5614 | — | .2838 | — |
+  | PAMR | **.7678** | .0055 | **.5982** | .0062 |
+  | PAR | .7369 | .0151 | .5645 | .0265 |
+  | PAMR-no-feats | .7215 | 0 | .5227 | 0 |
+  All-path (presence-free): K10 PAMR .7714 vs backbone .7295;
+  K100 .6290 vs .5543; no-feats = backbone exactly. Length heuristic
+  strict .8245/.7425 but non-strict .6328/.5242 (tie artifact).
+  Ablations K10: hop3 .8052, cls .7709, no_mask .7677, finetune .7663,
+  depth12 .7642, lf_temp .7577; K100: hop3 .6478, finetune .6086,
+  cls .6060, no_mask .5912, depth12 .5872, lf_temp .5775.
+  Diagnostics: v1-fixed .7201/.5261; loser-hard .7095/.5037.
+  Tables: `src/assets/report_v2/` (main, per_relation, ablations,
+  all_path, controls, diagnostics). **Metric policy: non-strict
+  (tie-aware) primary; strict alongside.**
 - **Journal plan v2 (approved 2026-10-23)**: K=10 + presence control +
   pathless-probe masking; K=10 and K=100 co-primary; pilot random-K10
   vs hard-K10 (top-10 of 100 sampled); 5 PAMR seeds (checkpoints only
