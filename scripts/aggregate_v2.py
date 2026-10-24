@@ -22,11 +22,12 @@ import pandas as pd
 
 RELATIONS = ["isInfluencedBy", "isInfluencedOn", "isPupilOf", "isTeacherOf"]
 K = [1, 3, 5, 10]
-MAIN_CONFIGS = [("PAMR", "campaign"), ("PAR", "par"),
-                ("PAMR-no-feats", "no_feats")]
+MAIN_CONFIGS = [("PAMR-listwise", "campaign"), ("PAMR-cls", "cls"),
+                ("PAR", "par"), ("PAMR-no-feats", "no_feats")]
 ABLATIONS = [("finetune", "finetune"), ("depth12", "depth12"),
              ("cls", "cls"), ("lf_temp", "lf_temp"),
-             ("hop3", "hop3"), ("no_mask", "no_mask")]
+             ("hop3", "hop3"), ("no_mask", "no_mask"),
+             ("lenonly", "lenonly")]
 
 
 def _load(path):
@@ -164,6 +165,7 @@ def main():
     ap.add_argument("--v1-root", required=True)
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--seeds", nargs="+", type=int, default=[42, 1, 2, 3, 4])
+    ap.add_argument("--baseline-seeds", nargs="+", type=int, default=[42])
     args = ap.parse_args()
 
     v2, v1 = Path(args.v2_root), Path(args.v1_root)
@@ -174,25 +176,45 @@ def main():
 
     for protocol in ("k10", "k100"):
         rows, pr_rows, all_path_rows = [], [], []
-        # baselines
+        # baselines (seed 42 + optional extra seeds; mean/std over seeds)
         for model in ("TransE", "RotatE", "DistMult", "ComplEx"):
-            mp = (v1 / "full" / "vlkge" / model / "metrics.json"
-                  if protocol == "k10" else
-                  k100 / "full" / "vlkge" / model / "metrics.json")
-            if not mp.exists():
+            vals, ctrls = [], []
+            for seed in args.baseline_seeds:
+                if protocol == "k10":
+                    mp = (v1 / "full" / "vlkge" / model / "metrics.json"
+                          if seed == 42 else
+                          v1 / "full" / "seed_scores" / f"{model}_s{seed}"
+                          / "metrics.json")
+                    cp = (v1 / "full" / "vlkge" / model / "path_control.json"
+                          if seed == 42 else
+                          v1 / "full" / "seed_scores" / f"{model}_s{seed}"
+                          / "path_control_k10.json")
+                else:
+                    mp = (k100 / "full" / "vlkge" / model / "metrics.json"
+                          if seed == 42 else
+                          k100 / "full" / "seed_scores" / f"{model}_s{seed}"
+                          / "metrics.json")
+                    cp = (k100 / "full" / "vlkge" / model / "path_control.json"
+                          if seed == 42 else
+                          k100 / "full" / "seed_scores" / f"{model}_s{seed}"
+                          / "path_control_k100.json")
+                if not mp.exists():
+                    continue
+                vals.append(_base_metrics(str(mp), protocol))
+                if cp.exists():
+                    ctrls.append(_load(cp)["model"]["all_path"])
+            if not vals:
                 continue
-            m = _base_metrics(str(mp), protocol)
-            rows.append(_row(f"VLKGE-{model}", [m], 1))
-            pr_rows.append(_pr_row(f"VLKGE-{model}", [m], 1))
-            cp = (v1 / "full" / "vlkge" / model / "path_control.json"
-                  if protocol == "k10" else
-                  k100 / "full" / "vlkge" / model / "path_control.json")
-            if cp.exists():
-                c = _load(cp)
+            rows.append(_row(f"VLKGE-{model}", vals, len(vals)))
+            pr_rows.append(_pr_row(f"VLKGE-{model}", vals, len(vals)))
+            if ctrls:
                 all_path_rows.append({
                     "Method": f"VLKGE-{model}",
-                    "all_path_MRR_ns": c["model"]["all_path"].get("MRR_ns"),
-                    "all_path_MRR_strict": c["model"]["all_path"].get("MRR"),
+                    "all_path_MRR_ns": round(float(np.mean(
+                        [x.get("MRR_ns") for x in ctrls])), 4),
+                    "all_path_MRR_strict": round(float(np.mean(
+                        [x.get("MRR") for x in ctrls])), 4),
+                    "n_seeds": len(ctrls),
                 })
         # PAMR / PAR / no-feats
         for name, cfg in MAIN_CONFIGS:
@@ -215,6 +237,24 @@ def main():
                         [x.get("MRR") for x in ap_vals])), 4),
                     "n_seeds": len(ap_vals),
                 })
+        lgp = out / f"logistic_{protocol}.json"
+        if lgp.exists():
+            lg = _load(lgp)
+            full = lg.get("full", {})
+            ns, st = full.get("ns", {}), full.get("strict", {})
+            rows.append({
+                "Method": "Path-logistic", "MRR_ns": ns.get("MRR"),
+                "MRR_ns_std": 0.0, "n_seeds": 1,
+                **{f"H{k}_ns": ns.get(f"H{k}") for k in K},
+                "MRR_strict": st.get("MRR"),
+            })
+            ap_l = (lg.get("all_path") or {}).get("ns", {})
+            all_path_rows.append({
+                "Method": "Path-logistic",
+                "all_path_MRR_ns": ap_l.get("MRR"),
+                "all_path_MRR_strict": (lg.get("all_path") or {})
+                .get("strict", {}).get("MRR"),
+            })
         pd.DataFrame(rows).to_csv(out / f"main_{protocol}.csv", index=False)
         pd.DataFrame(pr_rows).to_csv(out / f"per_relation_{protocol}.csv",
                                      index=False)

@@ -772,10 +772,16 @@ class PAMR(nn.Module):
         # over tokens is nearly length-invariant), so expose scalar path
         # statistics directly. The final layer is zero-initialized to keep
         # the frozen-backbone starting point.
-        self.use_path_features = bool(use_path_features)
+        mode = (str(use_path_features).lower()
+                if use_path_features not in (True, False, None)
+                else ("full" if use_path_features else "off"))
+        self.path_features_mode = mode
+        self.use_path_features = mode != "off"
         self.num_relations_feat = int(num_relation_types or 0)
-        if self.use_path_features and self.num_relations_feat > 0:
-            feat_dim = 2 + 3 + self.num_relations_feat + 2
+        if self.use_path_features and (self.num_relations_feat > 0
+                                       or mode == "length"):
+            feat_dim = 2 if mode == "length" else (
+                2 + 3 + self.num_relations_feat + 2)
             self.path_feat_mlp = nn.Sequential(
                 nn.Linear(feat_dim, d_model),
                 nn.ReLU(),
@@ -1061,6 +1067,11 @@ class PAMR(nn.Module):
         n_nodes = n_nodes.clamp(min=0)
         hops = (n_nodes - 1).clamp(min=0).float()
         max_hops = max(1, self.pos_embedding.num_embeddings // 2 - 1)
+        if self.path_features_mode == "length":
+            return torch.cat([
+                (hops / max_hops).unsqueeze(1),
+                (n_nodes >= 2).float().unsqueeze(1),
+            ], dim=1)
         n_den = n_nodes.clamp(min=1).float()
         node_counts = torch.stack(
             [(node_types == t).float().sum(dim=1) for t in (1, 2, 3)], dim=1)
