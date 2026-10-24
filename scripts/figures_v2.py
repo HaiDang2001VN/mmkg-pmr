@@ -45,6 +45,7 @@ def main():
         fig.savefig(figs / f"main_{proto}.pdf")
         plt.close(fig)
         apth = pd.read_csv(rep / f"all_path_{proto}.csv")
+        apth = apth.rename(columns={"all_path_MRR_ns": "MRR_ns"})
         fig, ax = plt.subplots(figsize=(6.4, 3.6))
         _bar(ax, apth, f"All-path subset ({proto.upper()})")
         fig.tight_layout()

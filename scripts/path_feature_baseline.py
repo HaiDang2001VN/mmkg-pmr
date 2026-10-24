@@ -41,11 +41,12 @@ def _parse_counts(series, width, prefix_shift=0):
 
 
 def _features(df):
-    hops = df["hops"].replace(-1, 0).astype(float)
-    has_path = (df["hops"] >= 0).astype(float)
-    valid = (df["hops"] >= 0).astype(float)
-    n_nodes = np.where(df["hops"] >= 0, df["hops"] + 1, 0).astype(float)
-    n_edges = np.maximum(n_nodes - 1, 0)
+    raw = df["hops"].to_numpy(dtype=float)
+    hops = np.where(raw >= 0, raw, 0.0)
+    has_path = (raw >= 0).astype(float)
+    valid = has_path
+    n_nodes = np.where(raw >= 0, raw + 1.0, 0.0)
+    n_edges = np.maximum(n_nodes - 1.0, 0.0)
     node = _parse_counts(df["node_types"], 4)
     node = node[:, 1:4]  # types 1..3
     edge = _parse_counts(df["edge_types"], NUM_REL)
@@ -65,7 +66,8 @@ def _features(df):
 def _frame(queries_csv, paths_csv):
     q = pd.read_csv(queries_csv).reset_index(drop=True)
     q["row_index"] = range(len(q))
-    p = pd.read_csv(paths_csv)
+    p = pd.read_csv(paths_csv)[
+        ["row_index", "hops", "node_types", "edge_types", "edge_directions"]]
     d = q.merge(p, on="row_index")
     d["candidate_tail_id"] = d["tail_id"]
     d["has_path"] = d["hops"] >= 0

@@ -189,7 +189,7 @@ def main():
                 if sc is None:
                     continue
                 per_seed.append(_recip_ranks(
-                    frame, _method_scores(frame, sc), ap_ids=None,
+                    frame, _method_scores(frame, sc),
                     rel_map=rel_map))
             if not per_seed:
                 continue
@@ -222,7 +222,7 @@ def main():
                 if sc is None:
                     continue
                 per_seed.append(_recip_ranks(
-                    frame, _method_scores(frame, sc), ap_ids=None,
+                    frame, _method_scores(frame, sc),
                     rel_map=rel_map))
             if not per_seed:
                 continue
