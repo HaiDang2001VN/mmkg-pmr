@@ -18,13 +18,16 @@ paper needs.**
 - **Context**: original venue submission was rejected 2026-09 (no
   rebuttal needed); `assets/review.md` issue numbers #1–#14 guide
   future-venue hardening only. Tags: [Original] vs [SOICT].
-- **What is happening now**: the post-submission campaign
-  (bugs.md §0/§3) is regenerating ALL numbers under the corrected
-  pipeline. Camera-ready plan = replace the paper's numbers with the
-  fresh campaign's authoritative values (locked decision: "camera-ready
-  = correct the numbers"). Old `assets/{result,average,count}.csv`
-  values are UNTRUSTED (H1/H3 column swap artifact; mixed split/source
-  branches) — do not quote them.
+- **What is happening now (2026-10-24)**: the journal v2 campaign is
+  COMPLETE (bugs.md §0): after fixing the MHA fast-path eval defect, the
+  path-extraction direct-edge shortcut, and adding a path-statistic
+  readout, PAMR scores test MRR .7678 (K=10) / .5982 (K≤100) non-strict,
+  vs TransE .7006 / .4508 and the no-feats ablation .7215 / .5227.
+  The journal submission is an analysis paper around these corrected
+  results + the diagnostic story (tie-aware metric policy: non-strict
+  primary; the length heuristic's strict advantage is a tie artifact).
+  Tables: `assets/report_v2/`. Old `assets/{result,average,count}.csv`
+  remain UNTRUSTED (June pipeline; H1/H3 column swap) — do not quote.
 
 ---
 
@@ -90,7 +93,7 @@ paper needs.**
 
 | Paper item | Fresh artifact (FIT paths under `projects/pamr/checkpoints/preproc/wikiart_mkg_v2/`) |
 |---|---|
-| Table 1 rows: VLKGE-TransE/RotatE/DistMult/ComplEx | `full/vlkge/<Model>/metrics.json` (per-relation MRR/Hits@1/3/5/10 + overall; per-model output-own dirs) |
+| Table 1 rows (K=10 + K≤100) | `assets/report_v2/{main,per_relation,all_path,controls}_k{10,100}.csv` (from `scripts/aggregate_v2.py`; non-strict primary, strict alongside) |
 | Table 1: PAMR | `full/pamr/pamr_training_metrics.json` (`test`, incl. `per_relation`) + probe-level `test_scores.csv` |
 | Table 1: PAR (Path-Aware Reasoning) | `full/par/pamr_training_metrics.json` (`test`) |
 | Ablation table (5 core ablations) | `full/ablations/{seed1,finetune,depth12,cls,lf_temp}/pamr_training_metrics.json` + hop3 in `_h3/pamr/` |
