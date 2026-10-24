@@ -88,8 +88,11 @@ def _base_metrics(metrics_path, protocol):
 
 
 def _control(run_dir, protocol):
-    p = Path(run_dir) / "paths" / f"path_control_{protocol}.json"
-    return _load(p) if p.exists() else None
+    for p in (Path(run_dir) / f"path_control_{protocol}.json",
+              Path(run_dir) / "paths" / f"path_control_{protocol}.json"):
+        if p.exists():
+            return _load(p)
+    return None
 
 
 def _rows_for(config, seeds, v2, protocol, loader):
